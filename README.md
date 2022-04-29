@@ -21,7 +21,7 @@ including:
 
 `docker buildx build --platform linux/arm64 -t <miriha/arm64/ingress-controller> --push .`
 
-### build of version `2.3.1`
+### `arm64`-build of version `2.3.1`
 
 goto https://hub.docker.com/repository/docker/miriha/kong_ingress_controller_on_arm64
 
