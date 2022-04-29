@@ -1,3 +1,28 @@
+
+# This branch is for building `KIC` for `arm64` 
+
+https://github.com/Kong/kubernetes-ingress-controller/issues/2441
+
+including:
+
+- https://github.com/Kong/kubernetes-ingress-controller/issues/451#issuecomment-550531200
+- https://github.com/Kong/kubernetes-ingress-controller/issues/451#issuecomment-551161855
+
+## What I have done?
+
+- replaced all `GOARCH=amd64` with `GOARCH=arm64`
+- built it with `docker buildx
+- pushed it to `https://hub.docker.com/repository/docker/miriha/kong_ingress_controller_on_arm64`
+
+- additionally changed all `images:`-references in the installation in `k8s` wioth this image
+  - WORKS LIKE A CHARM !
+
+### full build command
+
+`docker buildx build --platform linux/arm64 -t <miriha/arm64/ingress-controller> --push .`
+
+
+
 [![][kong-logo]][kong-url]
 [![Build Status](https://github.com/kong/kubernetes-ingress-controller/workflows/Test/badge.svg)](https://github.com/kong/kubernetes-ingress-controller/actions?query=branch%3Amaster+event%3Apush)
 [![Go Reference](https://pkg.go.dev/badge/github.com/kong/kubernetes-ingress-controller/v2.svg)](https://pkg.go.dev/github.com/kong/kubernetes-ingress-controller/v2)

@@ -17,7 +17,11 @@ COPY internal/ internal/
 ARG TAG
 ARG COMMIT
 ARG REPO_INFO
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o manager -ldflags "-s -w -X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Release=$TAG -X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Commit=$COMMIT -X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Repo=$REPO_INFO" ./internal/cmd/main.go
+#RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o manager -ldflags "-s -w -X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Release=$TAG -X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Commit=$COMMIT -X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Repo=$REPO_INFO" ./internal/cmd/main.go
+
+# changed due to  https://github.com/Kong/kubernetes-ingress-controller/issues/451#issuecomment-550531200
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GO111MODULE=on go build -a -o manager -ldflags "-s -w -X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Release=$TAG -X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Commit=$COMMIT -X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Repo=$REPO_INFO" ./internal/cmd/main.go
+
 
 ### FIPS 140-2 binary
 # Build the manager binary
@@ -39,12 +43,12 @@ COPY internal/ internal/
 ARG TAG
 ARG COMMIT
 ARG REPO_INFO
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o manager -ldflags "-s -w -X github.com/kong/kubernetes-ingress-controller/v2/internal/metadata.Release=$TAG -X github.com/kong/kubernetes-ingress-controller/v2/internal/metadata.Commit=$COMMIT -X github.com/kong/kubernetes-ingress-controller/v2/internal/metadata.Repo=$REPO_INFO" ./internal/cmd/fips/main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GO111MODULE=on go build -a -o manager -ldflags "-s -w -X github.com/kong/kubernetes-ingress-controller/v2/internal/metadata.Release=$TAG -X github.com/kong/kubernetes-ingress-controller/v2/internal/metadata.Commit=$COMMIT -X github.com/kong/kubernetes-ingress-controller/v2/internal/metadata.Repo=$REPO_INFO" ./internal/cmd/fips/main.go
 
 # Build a manager binary with debug symbols and download Delve
 FROM builder as builder-delve
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o manager-debug -gcflags=all="-N -l" -ldflags "-X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Release=$TAG -X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Commit=$COMMIT -X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Repo=$REPO_INFO" ./internal/cmd/main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GO111MODULE=on go build -a -o manager-debug -gcflags=all="-N -l" -ldflags "-X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Release=$TAG -X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Commit=$COMMIT -X github.com/kong/kubernetes-ingress-controller/v2/internal/manager/metadata.Repo=$REPO_INFO" ./internal/cmd/main.go
 
 ### Debug
 # Create an image that runs a debug build with a Delve remote server on port 2345
@@ -92,7 +96,7 @@ LABEL name="Kong Ingress Controller" \
 # Create the user (ID 1000) and group that will be used in the
 # running container to run the process as an unprivileged user.
 RUN groupadd --system kic && \
-    adduser --system kic -g kic -u 1000
+      adduser --system kic -g kic -u 1000
 
 COPY --from=builder /workspace/manager .
 COPY LICENSE /licenses/
@@ -126,7 +130,7 @@ LABEL name="Kong Ingress Controller" \
 # Create the user (ID 1000) and group that will be used in the
 # running container to run the process as an unprivileged user.
 RUN groupadd --system kic && \
-    adduser --system kic -g kic -u 1000
+      adduser --system kic -g kic -u 1000
 
 COPY --from=builder-fips /workspace/manager .
 COPY LICENSE /licenses/
