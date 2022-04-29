@@ -21,7 +21,11 @@ including:
 
 `docker buildx build --platform linux/arm64 -t <miriha/arm64/ingress-controller> --push .`
 
+---
 
+👇 ORIGINAL 
+
+---
 
 [![][kong-logo]][kong-url]
 [![Build Status](https://github.com/kong/kubernetes-ingress-controller/workflows/Test/badge.svg)](https://github.com/kong/kubernetes-ingress-controller/actions?query=branch%3Amaster+event%3Apush)
