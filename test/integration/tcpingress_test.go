@@ -25,6 +25,7 @@ import (
 	"github.com/kong/kubernetes-ingress-controller/v2/internal/annotations"
 	kongv1beta1 "github.com/kong/kubernetes-ingress-controller/v2/pkg/apis/configuration/v1beta1"
 	"github.com/kong/kubernetes-ingress-controller/v2/pkg/clientset"
+	"github.com/kong/kubernetes-ingress-controller/v2/test"
 )
 
 var tcpMutex sync.Mutex
@@ -46,11 +47,11 @@ func TestTCPIngressEssentials(t *testing.T) {
 
 	t.Log("setting up the TCPIngress tests")
 	testName := "tcpingress"
-	c, err := clientset.NewForConfig(env.Cluster().Config())
+	gatewayClient, err := clientset.NewForConfig(env.Cluster().Config())
 	require.NoError(t, err)
 
 	t.Log("deploying a minimal HTTP container deployment to test Ingress routes")
-	deployment := generators.NewDeploymentForContainer(generators.NewContainer(testName, httpBinImage, 80))
+	deployment := generators.NewDeploymentForContainer(generators.NewContainer(testName, test.HTTPBinImage, 80))
 	deployment, err = env.Cluster().Client().AppsV1().Deployments(ns.Name).Create(ctx, deployment, metav1.CreateOptions{})
 	require.NoError(t, err)
 
@@ -90,11 +91,11 @@ func TestTCPIngressEssentials(t *testing.T) {
 			},
 		},
 	}
-	tcp, err = c.ConfigurationV1beta1().TCPIngresses(ns.Name).Create(ctx, tcp, metav1.CreateOptions{})
+	tcp, err = gatewayClient.ConfigurationV1beta1().TCPIngresses(ns.Name).Create(ctx, tcp, metav1.CreateOptions{})
 	require.NoError(t, err)
 	defer func() {
 		t.Logf("ensuring that TCPIngress %s is cleaned up", tcp.Name)
-		if err := c.ConfigurationV1beta1().TCPIngresses(ns.Name).Delete(ctx, tcp.Name, metav1.DeleteOptions{}); err != nil {
+		if err := gatewayClient.ConfigurationV1beta1().TCPIngresses(ns.Name).Delete(ctx, tcp.Name, metav1.DeleteOptions{}); err != nil {
 			if !errors.IsNotFound(err) {
 				require.NoError(t, err)
 			}
@@ -102,7 +103,7 @@ func TestTCPIngressEssentials(t *testing.T) {
 	}()
 
 	t.Logf("checking tcpingress %s status readiness.", tcp.Name)
-	ingCli := c.ConfigurationV1beta1().TCPIngresses(ns.Name)
+	ingCli := gatewayClient.ConfigurationV1beta1().TCPIngresses(ns.Name)
 	assert.Eventually(t, func() bool {
 		curIng, err := ingCli.Get(ctx, tcp.Name, metav1.GetOptions{})
 		if err != nil || curIng == nil {
@@ -140,7 +141,7 @@ func TestTCPIngressEssentials(t *testing.T) {
 	}, ingressWait, waitTick)
 
 	t.Logf("tearing down TCPIngress %s and ensuring that the relevant backend routes are removed", tcp.Name)
-	require.NoError(t, c.ConfigurationV1beta1().TCPIngresses(ns.Name).Delete(ctx, tcp.Name, metav1.DeleteOptions{}))
+	require.NoError(t, gatewayClient.ConfigurationV1beta1().TCPIngresses(ns.Name).Delete(ctx, tcp.Name, metav1.DeleteOptions{}))
 	require.Eventually(t, func() bool {
 		resp, err := httpc.Get(tcpProxyURL.String())
 		if err != nil {
@@ -165,7 +166,7 @@ func TestTCPIngressTLS(t *testing.T) {
 
 	t.Log("setting up the TCPIngress tests")
 	testName := "tcpingress-%s"
-	c, err := clientset.NewForConfig(env.Cluster().Config())
+	gatewayClient, err := clientset.NewForConfig(env.Cluster().Config())
 	require.NoError(t, err)
 
 	testServiceSuffixes := []string{"alpha", "bravo", "charlie"}
@@ -174,7 +175,7 @@ func TestTCPIngressTLS(t *testing.T) {
 	for _, i := range testServiceSuffixes {
 		localTestName := fmt.Sprintf(testName, i)
 		t.Log("deploying a minimal TCP container deployment to test Ingress routes")
-		container := generators.NewContainer(localTestName, tcpEchoImage, tcpEchoPort)
+		container := generators.NewContainer(localTestName, test.TCPEchoImage, tcpEchoPort)
 		// go-echo sends a "Running on Pod POD_NAME." immediately on connecting
 		container.Env = []corev1.EnvVar{
 			{
@@ -233,11 +234,11 @@ func TestTCPIngressTLS(t *testing.T) {
 			},
 		},
 	}
-	tcpX, err = c.ConfigurationV1beta1().TCPIngresses(ns.Name).Create(ctx, tcpX, metav1.CreateOptions{})
+	tcpX, err = gatewayClient.ConfigurationV1beta1().TCPIngresses(ns.Name).Create(ctx, tcpX, metav1.CreateOptions{})
 	require.NoError(t, err)
 	defer func() {
 		t.Logf("ensuring that TCPIngress %s is cleaned up", tcpX.Name)
-		if err := c.ConfigurationV1beta1().TCPIngresses(ns.Name).Delete(ctx, tcpX.Name, metav1.DeleteOptions{}); err != nil {
+		if err := gatewayClient.ConfigurationV1beta1().TCPIngresses(ns.Name).Delete(ctx, tcpX.Name, metav1.DeleteOptions{}); err != nil {
 			if !errors.IsNotFound(err) {
 				require.NoError(t, err)
 			}
@@ -265,11 +266,11 @@ func TestTCPIngressTLS(t *testing.T) {
 			},
 		},
 	}
-	tcpY, err = c.ConfigurationV1beta1().TCPIngresses(ns.Name).Create(ctx, tcpY, metav1.CreateOptions{})
+	tcpY, err = gatewayClient.ConfigurationV1beta1().TCPIngresses(ns.Name).Create(ctx, tcpY, metav1.CreateOptions{})
 	require.NoError(t, err)
 	defer func() {
 		t.Logf("ensuring that TCPIngress %s is cleaned up", tcpY.Name)
-		if err := c.ConfigurationV1beta1().TCPIngresses(ns.Name).Delete(ctx, tcpY.Name, metav1.DeleteOptions{}); err != nil {
+		if err := gatewayClient.ConfigurationV1beta1().TCPIngresses(ns.Name).Delete(ctx, tcpY.Name, metav1.DeleteOptions{}); err != nil {
 			if !errors.IsNotFound(err) {
 				require.NoError(t, err)
 			}
@@ -302,9 +303,9 @@ func TestTCPIngressTLS(t *testing.T) {
 
 	// Update wipes out tcpY if actually assigned, breaking the deferred delete. we have no use for it, so discard it
 	require.Eventually(t, func() bool {
-		tcpY, err = c.ConfigurationV1beta1().TCPIngresses(ns.Name).Get(ctx, tcpY.Name, metav1.GetOptions{})
+		tcpY, err = gatewayClient.ConfigurationV1beta1().TCPIngresses(ns.Name).Get(ctx, tcpY.Name, metav1.GetOptions{})
 		tcpY.Spec.Rules[0].Backend.ServiceName = testServiceSuffixes[0]
-		_, err = c.ConfigurationV1beta1().TCPIngresses(ns.Name).Update(ctx, tcpY, metav1.UpdateOptions{})
+		_, err = gatewayClient.ConfigurationV1beta1().TCPIngresses(ns.Name).Update(ctx, tcpY, metav1.UpdateOptions{})
 		return err == nil
 	}, time.Minute, time.Second)
 
@@ -351,7 +352,7 @@ func TestTCPIngressTLSPassthrough(t *testing.T) {
 
 	t.Log("setting up the TCPIngress TLS passthrough tests")
 	testName := "tlspass"
-	c, err := clientset.NewForConfig(env.Cluster().Config())
+	gatewayClient, err := clientset.NewForConfig(env.Cluster().Config())
 	require.NoError(t, err)
 
 	t.Log("configuring secrets")
@@ -456,11 +457,11 @@ func TestTCPIngressTLSPassthrough(t *testing.T) {
 			},
 		},
 	}
-	tcp, err = c.ConfigurationV1beta1().TCPIngresses(ns.Name).Create(ctx, tcp, metav1.CreateOptions{})
+	tcp, err = gatewayClient.ConfigurationV1beta1().TCPIngresses(ns.Name).Create(ctx, tcp, metav1.CreateOptions{})
 	require.NoError(t, err)
 	defer func() {
 		t.Log("ensuring that TCPIngress is cleaned up", tcp.Name)
-		if err := c.ConfigurationV1beta1().TCPIngresses(ns.Name).Delete(ctx, tcp.Name, metav1.DeleteOptions{}); err != nil {
+		if err := gatewayClient.ConfigurationV1beta1().TCPIngresses(ns.Name).Delete(ctx, tcp.Name, metav1.DeleteOptions{}); err != nil {
 			if !errors.IsNotFound(err) {
 				require.NoError(t, err)
 			}

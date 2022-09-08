@@ -1,5 +1,8 @@
 # Table of Contents
 
+ - [2.5.0](#250)
+ - [2.4.2](#242)
+ - [2.4.1](#241)
  - [2.4.0](#240)
  - [2.3.1](#231)
  - [2.3.0](#230)
@@ -47,12 +50,87 @@
  - [0.0.5](#005)
  - [0.0.4 and prior](#004-and-prior)
 
-## [2.4.0]
+## [2.5.0]
 
-> Release date: TBD
+> Release date: 2022-07-11
+
+#### Breaking changes in Gateway API technical preview:
+
+- The controller no longer overrides Gateway Listeners with a list of Listeners
+  derived from Kong configuration. User-provided Listener lists are preserved
+  as-is. Listener status information indicates if a requested Listener is not
+  ready because of missing Kong listen configuration. This is necessary to
+  properly support allowed routes and TLS configuration in Listeners, which
+  would otherwise be wiped out by automatic updates. This has no immediate
+  impact on existing Gateway resources used with previous versions: their
+  automatically-set Listeners are now treated as user-defined Listeners and
+  will not be modified by upgrading. This only affects new Gateway resources:
+  you will need to populate the Listeners you want, and they will need to match
+  Kong's listen configuration to become ready.
+  [#2555](https://github.com/Kong/kubernetes-ingress-controller/pull/2555)
 
 #### Added
 
+- Added support for Gateway Listener TLS configuration, to enable full use of
+  TLSRoute and HTTPS HTTPRoutes.
+  [#2580](https://github.com/Kong/kubernetes-ingress-controller/pull/2580)
+- Added information about service mesh deployment and distribution in telemetry data reported to Kong.
+  [#2642](https://github.com/Kong/kubernetes-ingress-controller/pull/2642)
+
+#### Fixed
+- Fixed the problem that logs from reporter does not appear in the pod log.
+  [#2645](https://github.com/Kong/kubernetes-ingress-controller/pull/2645)
+
+## [2.4.2]
+
+> Release date: 2022-06-30
+
+#### Fixed
+
+- Fix an issue with ServiceAccount token mount.
+  [#2620](https://github.com/Kong/kubernetes-ingress-controller/issues/2620)
+  [#2626](https://github.com/Kong/kubernetes-ingress-controller/issues/2626)
+
+## [2.4.1]
+
+> Release date: 2022-06-22
+
+#### Added
+
+- Increased the default Kong admin API timeout from 10s to 30s and added a
+  log mentioning the flag to increase it further.
+  [#2594](https://github.com/Kong/kubernetes-ingress-controller/issues/2594)
+
+#### Fixed
+
+- Disabling the IngressClass controller now disables IngressClass watches in
+  other controllers. This fixes a crash on Kubernetes versions that do not
+  offer an IngressClass version that KIC can read.
+  [#2577](https://github.com/Kong/kubernetes-ingress-controller/issues/2577)
+
+## [2.4.0]
+
+> Release date: 2022-06-14
+
+#### Added
+
+- A new gated feature called `CombinedRoutes` has been added. Historically
+  a `kong.Route` would be created for _each path_ on an `Ingress` resource
+  in the phase where Kubernetes resources are translated to Kong Admin API
+  configuration. This new feature changes how `Ingress` resources are
+  translated so that a single route can be created for any unique combination
+  of ingress object, hostname, service and port which has multiple paths.
+  This option is helpful for end-users who are making near constant changes
+  to their configs (e.g. constantly adding, updating, and removing `Ingress`
+  resources) at scale, and users that have enormous numbers of paths all
+  pointing to a single Kubernetes `Service` as it can significantly reduce
+  the overall size of the dataplane configuration that is pushed to the Kong
+  Admin API. This feature is expected to be disruptive (routes may be dropped
+  briefly in postgres mode when switching to this mode) so for the moment it
+  is behind a feature gate while we continue to iterate on it and evaluate it
+  and seek a point where it would become the default behavior. Enable it with
+  the controller argument `--feature-gates=CombinedRoutes`.
+  [#2490](https://github.com/Kong/kubernetes-ingress-controller/issues/2490)
 - `UDPRoute` resources now support multiple backendRefs for load-balancing.
   [#2405](https://github.com/Kong/kubernetes-ingress-controller/issues/2405)
 - `TCPRoute` resources now support multiple backendRefs for load-balancing.
@@ -72,9 +150,39 @@
   `allowedRoutes` filters are merged into generated listeners with the same
   protocol.
   [#2389](https://github.com/Kong/kubernetes-ingress-controller/issues/2389)
+- Added `--skip-ca-certificates` flag to ignore CA certificate resources for
+  [use with multi-workspace environments](https://github.com/Kong/deck/blob/main/CHANGELOG.md#v1120).
+  [#2341](https://github.com/Kong/kubernetes-ingress-controller/issues/2341)
+- Gateway API Route types now support cross-namespace BackendRefs if a
+  [ReferencePolicy](https://gateway-api.sigs.k8s.io/v1alpha2/api-types/referencepolicy/)
+  permits them.
+  [#2451](https://github.com/Kong/kubernetes-ingress-controller/issues/2451)
+- Added description of each field of `kongIngresses` CRD.
+  [#1766](https://github.com/Kong/kubernetes-ingress-controller/issues/1766)
+- Added support for `TLSRoute` resources.
+  [#2476](https://github.com/Kong/kubernetes-ingress-controller/issues/2476)
+- Added `--term-delay` flag to support setting a time delay before processing
+  `SIGTERM` and `SIGINT` signals. This was added to specifically help in
+  situations where the Kong Gateway has a load-balancer in front of it to help
+  stagger and stabilize the shutdown procedure when the load-balancer is
+  draining or otherwise needs to remove the Gateway from it's rotation.
+  [#2494](https://github.com/Kong/kubernetes-ingress-controller/pull/2494)
+- Added `kong-ingress-controller` category to CRDs
+  [#2517](https://github.com/Kong/kubernetes-ingress-controller/pull/2517)
 
 #### Fixed
 
+- Unmanaged-mode `Gateway` resources which reference a `LoadBalancer` type
+  `Service` will now tolerate the IPs/Hosts for that `Service` not becoming
+  provisioned (e.g. the `LoadBalancer` implementation is broken or otherwise
+  and the `EXTERNAL-IP` is stuck in `<pending>`) and will still attempt to
+  configure `Routes` for that `Gateway` as long as the dataplane API can be
+  otherwise reached.
+  [#2413](https://github.com/Kong/kubernetes-ingress-controller/issues/2413)
+- Fixed a race condition in the newer Gateway route controllers which could
+  trigger when an object's status was updated shortly after the object was
+  cached in the dataplane client.
+  [#2446](https://github.com/Kong/kubernetes-ingress-controller/issues/2446)
 - Added a mechanism to retry the initial connection to the Kong
   Admin API on controller start to fix an issue where the controller
   pod could crash loop on start when waiting for Gateway readiness 
@@ -85,6 +193,18 @@
 - diff logging now honors log level instead of printing at all log levels. It
   will only print at levels `debug` and `trace`.
   [#2422](https://github.com/Kong/kubernetes-ingress-controller/issues/2422)
+- For KNative Ingress resources, KIC now reads both the new style annotation
+  `networking.knative.dev/ingress-class` and the deprecated `networking.knative.dev/ingress.class` one
+  to adapt to [what has already been done in knative](https://github.com/knative/networking/pull/522).
+  [#2485](https://github.com/Kong/kubernetes-ingress-controller/issues/2485)
+- Remove KongIngress support for Gateway API Route objects and Services referenced
+  by those Routes. This disables an undocumented ability of customizing Gateway API
+  `*Route` objects and `Service`s that are set as backendRefs for those `*Route`s
+  via `konghq.com/override` annotations.
+  [#2554](https://github.com/Kong/kubernetes-ingress-controller/issues/2554)
+- Fixed a vulnerability that permission could be escalated by running custom lua
+  scripts.
+  [#2572](https://github.com/Kong/kubernetes-ingress-controller/pull/2572)
 
 ## [2.3.1]
 
@@ -1698,6 +1818,9 @@ Please read the changelog and test in your environment.
  - The initial versions  were rapildy iterated to deliver
    a working ingress controller.
 
+[2.5.0]: https://github.com/kong/kubernetes-ingress-controller/compare/v2.4.2...v2.5.0
+[2.4.2]: https://github.com/kong/kubernetes-ingress-controller/compare/v2.4.1...v2.4.2
+[2.4.1]: https://github.com/kong/kubernetes-ingress-controller/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/kong/kubernetes-ingress-controller/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/kong/kubernetes-ingress-controller/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/kong/kubernetes-ingress-controller/compare/v2.2.1...v2.3.0

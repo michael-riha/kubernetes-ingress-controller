@@ -11,7 +11,7 @@ metadata:
   labels:
     app: httpbin
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: httpbin
@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
       - name: httpbin
-        image: kennethreitz/httpbin
+        image: kong/httpbin:0.1.0
         ports:
         - containerPort: 80
 ---

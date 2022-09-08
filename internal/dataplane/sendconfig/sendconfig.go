@@ -35,11 +35,13 @@ func PerformUpdate(ctx context.Context,
 	kongConfig *Kong,
 	inMemory bool,
 	reverseSync bool,
+	skipCACertificates bool,
 	targetContent *file.Content,
 	selectorTags []string,
 	customEntities []byte,
 	oldSHA []byte,
-	promMetrics *metrics.CtrlFuncMetrics) ([]byte, error) {
+	promMetrics *metrics.CtrlFuncMetrics,
+) ([]byte, error) {
 	newSHA, err := deckgen.GenerateSHA(targetContent, customEntities)
 	if err != nil {
 		return oldSHA, err
@@ -77,7 +79,7 @@ func PerformUpdate(ctx context.Context,
 		err = onUpdateInMemoryMode(ctx, log, targetContent, customEntities, kongConfig)
 	} else {
 		metricsProtocol = metrics.ProtocolDeck
-		err = onUpdateDBMode(ctx, targetContent, kongConfig, selectorTags)
+		err = onUpdateDBMode(ctx, targetContent, kongConfig, selectorTags, skipCACertificates)
 	}
 	timeEnd := time.Now()
 
@@ -110,8 +112,8 @@ func PerformUpdate(ctx context.Context,
 // -----------------------------------------------------------------------------
 
 func renderConfigWithCustomEntities(log logrus.FieldLogger, state *file.Content,
-	customEntitiesJSONBytes []byte) ([]byte, error) {
-
+	customEntitiesJSONBytes []byte,
+) ([]byte, error) {
 	var kongCoreConfig []byte
 	var err error
 
@@ -199,8 +201,9 @@ func onUpdateDBMode(ctx context.Context,
 	targetContent *file.Content,
 	kongConfig *Kong,
 	selectorTags []string,
+	skipCACertificates bool,
 ) error {
-	dumpConfig := dump.Config{SelectorTags: selectorTags}
+	dumpConfig := dump.Config{SelectorTags: selectorTags, SkipCACerts: skipCACertificates}
 	// read the current state
 	rawState, err := dump.Get(ctx, kongConfig.Client, dumpConfig)
 	if err != nil {

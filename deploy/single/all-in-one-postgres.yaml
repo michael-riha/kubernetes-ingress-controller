@@ -13,6 +13,8 @@ metadata:
 spec:
   group: configuration.konghq.com
   names:
+    categories:
+    - kong-ingress-controller
     kind: KongClusterPlugin
     listKind: KongClusterPluginList
     plural: kongclusterplugins
@@ -139,6 +141,8 @@ metadata:
 spec:
   group: configuration.konghq.com
   names:
+    categories:
+    - kong-ingress-controller
     kind: KongConsumer
     listKind: KongConsumerList
     plural: kongconsumers
@@ -208,6 +212,8 @@ metadata:
 spec:
   group: configuration.konghq.com
   names:
+    categories:
+    - kong-ingress-controller
     kind: KongIngress
     listKind: KongIngressList
     plural: kongingresses
@@ -234,15 +240,21 @@ spec:
           metadata:
             type: object
           proxy:
-            description: KongIngressService contains KongIngress service configuration
+            description: Proxy defines additional connection options for the routes
+              to be configured in the Kong Gateway, e.g. `connection_timeout`, `retries`,
+              e.t.c.
             properties:
               connect_timeout:
+                description: The timeout in milliseconds for establishing a connection
+                  to the upstream server.
                 minimum: 0
                 type: integer
               path:
+                description: The path to be used in requests to the upstream server.(optional)
                 pattern: ^/.*$
                 type: string
               protocol:
+                description: The protocol used to communicate with the upstream.
                 enum:
                 - http
                 - https
@@ -253,38 +265,59 @@ spec:
                 - udp
                 type: string
               read_timeout:
+                description: The timeout in milliseconds between two successive read
+                  operations for transmitting a request to the upstream server.
                 minimum: 0
                 type: integer
               retries:
+                description: The number of retries to execute upon failure to proxy.
                 minimum: 0
                 type: integer
               write_timeout:
+                description: The timeout in milliseconds between two successive write
+                  operations for transmitting a request to the upstream server.
                 minimum: 0
                 type: integer
             type: object
           route:
-            description: KongIngressRoute contains KongIngress route configuration
+            description: Route define rules to match client requests. Each Route is
+              associated with a Service, and a Service may have multiple Routes associated
+              to it.
             properties:
               headers:
                 additionalProperties:
                   items:
                     type: string
                   type: array
+                description: Headers contains one or more lists of values indexed
+                  by header name that will cause this Route to match if present in
+                  the request. The Host header cannot be used with this attribute.
                 type: object
               https_redirect_status_code:
+                description: HTTPSRedirectStatusCode is the status code Kong responds
+                  with when all properties of a Route match except the protocol.
                 type: integer
               methods:
+                description: Methods is a list of HTTP methods that match this Route.
                 items:
                   type: string
                 type: array
               path_handling:
+                description: PathHandling controls how the Service path, Route path
+                  and requested path are combined when sending a request to the upstream.
                 enum:
                 - v0
                 - v1
                 type: string
               preserve_host:
+                description: PreserveHost sets When matching a Route via one of the
+                  hosts domain names, use the request Host header in the upstream
+                  request headers. If set to false, the upstream Host header will
+                  be that of the Service’s host.
                 type: boolean
               protocols:
+                description: Protocols is an array of the protocols this Route should
+                  allow.
                 items:
                   enum:
                   - http
@@ -297,41 +330,69 @@ spec:
                   type: string
                 type: array
               regex_priority:
+                description: RegexPriority is a number used to choose which route
+                  resolves a given request when several routes match it using regexes
+                  simultaneously.
                 type: integer
               request_buffering:
+                description: RequestBuffering sets whether to enable request body
+                  buffering or not.
                 type: boolean
               response_buffering:
+                description: ResponseBuffering sets whether to enable response body
+                  buffering or not.
                 type: boolean
               snis:
+                description: SNIs is a list of SNIs that match this Route when using
+                  stream routing.
                 items:
                   type: string
                 type: array
               strip_path:
+                description: StripPath sets When matching a Route via one of the paths
+                  strip the matching prefix from the upstream request URL.
                 type: boolean
             type: object
           upstream:
-            description: KongIngressUpstream contains KongIngress upstream configuration
+            description: Upstream represents a virtual hostname and can be used to
+              loadbalance incoming requests over multiple targets (e.g. Kubernetes
+              `Services` can be a target, OR `Endpoints` can be targets).
             properties:
               algorithm:
+                description: Algorithm is the load balancing algorithm to use.
                 enum:
                 - round-robin
                 - consistent-hashing
                 - least-connections
                 type: string
               hash_fallback:
+                description: 'HashFallback defines What to use as hashing input if
+                  the primary hash_on does not return a hash. Accepted values are:
+                  "none", "consumer", "ip", "header", "cookie".'
                 type: string
               hash_fallback_header:
+                description: HashFallbackHeader is the header name to take the value
+                  from as hash input. Only required when "hash_fallback" is set to
+                  "header".
                 type: string
               hash_on:
+                description: 'HashOn defines what to use as hashing input. Accepted
+                  values are: "none", "consumer", "ip", "header", "cookie".'
                 type: string
               hash_on_cookie:
+                description: The cookie name to take the value from as hash input.
+                  Only required when "hash_on" or "hash_fallback" is set to "cookie".
                 type: string
               hash_on_cookie_path:
+                description: The cookie path to set in the response headers. Only
+                  required when "hash_on" or "hash_fallback" is set to "cookie".
                 type: string
               hash_on_header:
+                description: HashOnHeader defines the header name to take the value
+                  from as hash input. Only required when "hash_on" is set to "header".
                 type: string
               healthchecks:
-                description: Healthcheck represents a health-check config of an upstream
+                description: Healthchecks defines the health check configurations
                   in Kong.
                 properties:
                   active:
@@ -437,8 +498,11 @@ spec:
                     type: number
                 type: object
               host_header:
+                description: HostHeader is The hostname to be used as Host header
+                  when proxying requests through Kong.
                 type: string
               slots:
+                description: Slots is the number of slots in the load balancer algorithm.
                 minimum: 10
                 type: integer
             type: object
@@ -464,6 +528,8 @@ metadata:
 spec:
   group: configuration.konghq.com
   names:
+    categories:
+    - kong-ingress-controller
     kind: KongPlugin
     listKind: KongPluginList
     plural: kongplugins
@@ -586,6 +652,8 @@ metadata:
 spec:
   group: configuration.konghq.com
   names:
+    categories:
+    - kong-ingress-controller
     kind: TCPIngress
     listKind: TCPIngressList
     plural: tcpingresses
@@ -772,6 +840,8 @@ metadata:
 spec:
   group: configuration.konghq.com
   names:
+    categories:
+    - kong-ingress-controller
     kind: UDPIngress
     listKind: UDPIngressList
     plural: udpingresses
@@ -1185,6 +1255,32 @@ rules:
 - apiGroups:
   - gateway.networking.k8s.io
   resources:
+  - referencepolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - referencepolicies/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - referencepolicies/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
   - tcproutes
   verbs:
   - get
@@ -1194,6 +1290,21 @@ rules:
   - gateway.networking.k8s.io
   resources:
   - tcproutes/status
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - tlsroutes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - tlsroutes/status
   verbs:
   - get
   - update
@@ -1281,6 +1392,15 @@ subjects:
   namespace: kong
 ---
 apiVersion: v1
+kind: Secret
+metadata:
+  annotations:
+    kubernetes.io/service-account.name: kong-serviceaccount
+  name: kong-serviceaccount-token
+  namespace: kong
+type: kubernetes.io/service-account-token
+---
+apiVersion: v1
 kind: Service
 metadata:
   annotations:
@@ -1346,10 +1466,12 @@ spec:
     metadata:
       annotations:
         kuma.io/gateway: enabled
+        kuma.io/service-account-token-volume: kong-serviceaccount-token
         traffic.sidecar.istio.io/includeInboundPorts: ""
       labels:
         app: ingress-kong
     spec:
+      automountServiceAccountToken: false
       containers:
       - env:
         - name: KONG_DATABASE
@@ -1432,7 +1554,7 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: metadata.namespace
-        image: kong/kubernetes-ingress-controller:2.3.1
+        image: kong/kubernetes-ingress-controller:2.5.0
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -1462,6 +1584,10 @@ spec:
           periodSeconds: 10
           successThreshold: 1
           timeoutSeconds: 1
+        volumeMounts:
+        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          name: kong-serviceaccount-token
+          readOnly: true
       initContainers:
       - command:
         - /bin/sh
@@ -1476,6 +1602,17 @@ spec:
         image: kong:2.8
         name: wait-for-migrations
       serviceAccountName: kong-serviceaccount
+      volumes:
+      - name: kong-serviceaccount-token
+        secret:
+          items:
+          - key: token
+            path: token
+          - key: ca.crt
+            path: ca.crt
+          - key: namespace
+            path: namespace
+          secretName: kong-serviceaccount-token
 ---
 apiVersion: apps/v1
 kind: StatefulSet

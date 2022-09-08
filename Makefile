@@ -27,35 +27,28 @@ endif
 # Configuration - Tooling
 # ------------------------------------------------------------------------------
 
-CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
-controller-gen: ## Download controller-gen locally if necessary.
-	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.7.0)
-
-KUSTOMIZE = $(shell pwd)/bin/kustomize
-kustomize: ## Download kustomize locally if necessary.
-	$(call go-get-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@v4.5.2)
-
-CLIENT_GEN = $(shell pwd)/bin/client-gen
-client-gen: ## Download client-gen locally if necessary.
-	$(call go-get-tool,$(CLIENT_GEN),k8s.io/code-generator/cmd/client-gen@v0.21.3)
-
-GOLANGCI_LINT = $(shell pwd)/bin/golangci-lint
-golangci-lint: ## Download golangci-lint locally if necessary.
-	$(call go-get-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint@v1.44.2)
-
-# go-get-tool will 'go get' any package $2 and install it to $1.
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
-define go-get-tool
-@[ -f $(1) ] || { \
-set -e ;\
-TMP_DIR=$$(mktemp -d) ;\
-cd $$TMP_DIR ;\
-go mod init tmp ;\
-echo "Downloading $(2)" ;\
-GOBIN=$(PROJECT_DIR)/bin go install $(2) ;\
-rm -rf $$TMP_DIR ;\
-}
-endef
+
+.PHONY: _download_tool
+_download_tool:
+	(cd third_party && go mod tidy ) && \
+		GOBIN=$(PROJECT_DIR)/bin go install -modfile third_party/go.mod $(TOOL)
+
+CONTROLLER_GEN = $(PROJECT_DIR)/bin/controller-gen
+controller-gen: ## Download controller-gen locally if necessary.
+	$(MAKE) _download_tool TOOL=sigs.k8s.io/controller-tools/cmd/controller-gen
+
+KUSTOMIZE = $(PROJECT_DIR)/bin/kustomize
+kustomize: ## Download kustomize locally if necessary.
+	$(MAKE) _download_tool TOOL=sigs.k8s.io/kustomize/kustomize/v4
+
+CLIENT_GEN = $(PROJECT_DIR)/bin/client-gen
+client-gen: ## Download client-gen locally if necessary.
+	$(MAKE) _download_tool TOOL=k8s.io/code-generator/cmd/client-gen
+
+GOLANGCI_LINT = $(PROJECT_DIR)/bin/golangci-lint
+golangci-lint: ## Download golangci-lint locally if necessary.
+	$(MAKE) _download_tool TOOL=github.com/golangci/golangci-lint/cmd/golangci-lint
 
 # ------------------------------------------------------------------------------
 # Build
@@ -115,6 +108,7 @@ verify.generators: verify.repo generate verify.diff
 # Build - Manifests
 # ------------------------------------------------------------------------------
 
+CRD_GEN_PATHS ?= ./...
 CRD_OPTIONS ?= "+crd:allowDangerousTypes=true"
 
 .PHONY: manifests
@@ -122,7 +116,7 @@ manifests: manifests.crds manifests.single
 
 .PHONY: manifests.crds
 manifests.crds: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=kong-ingress webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=kong-ingress webhook paths="$(CRD_GEN_PATHS)" output:crd:artifacts:config=config/crd/bases
 
 .PHONY: manifests.single
 manifests.single: kustomize ## Compose single-file deployment manifests from building blocks
@@ -133,11 +127,11 @@ manifests.single: kustomize ## Compose single-file deployment manifests from bui
 # ------------------------------------------------------------------------------
 
 .PHONY: generate
-generate: generate.controllers generate.clientsets
+generate: generate.controllers generate.clientsets generate.gateway-api-crds-url
 
 .PHONY: generate.controllers
 generate.controllers: controller-gen
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="$(CRD_GEN_PATHS)"
 	go generate ./...
 
 # this will generate the custom typed clients needed for end-users implementing logic in Go to use our API types.
@@ -167,20 +161,22 @@ IMAGE ?= $(REGISTRY)/$(IMGNAME)
 .PHONY: container
 container:
 	docker buildx build \
-    -f Dockerfile \
-    --target distroless \
-    --build-arg TAG=${TAG} --build-arg COMMIT=${COMMIT} \
-    --build-arg REPO_INFO=${REPO_INFO} \
-    -t ${IMAGE}:${TAG} .
+		-f Dockerfile \
+		--target distroless \
+		--build-arg TAG=${TAG} \
+		--build-arg COMMIT=${COMMIT} \
+		--build-arg REPO_INFO=${REPO_INFO} \
+		-t ${IMAGE}:${TAG} .
 
 .PHONY: container
 debug-container:
 	docker buildx build \
-    -f Dockerfile \
-    --target debug \
-    --build-arg TAG=${TAG}-debug --build-arg COMMIT=${COMMIT} \
-    --build-arg REPO_INFO=${REPO_INFO} \
-    -t ${IMAGE}:${TAG} .
+		-f Dockerfile \
+		--target debug \
+		--build-arg TAG=${TAG}-debug \
+		--build-arg COMMIT=${COMMIT} \
+		--build-arg REPO_INFO=${REPO_INFO} \
+		-t ${IMAGE}:${TAG} .
 
 # ------------------------------------------------------------------------------
 # Testing
@@ -189,8 +185,9 @@ debug-container:
 NCPU ?= $(shell getconf _NPROCESSORS_ONLN)
 PKG_LIST = ./pkg/...,./internal/...
 KIND_CLUSTER_NAME ?= "integration-tests"
-INTEGRATION_TEST_TIMEOUT ?= "20m"
-E2E_TEST_TIMEOUT ?= "30m"
+INTEGRATION_TEST_TIMEOUT ?= "45m"
+E2E_TEST_TIMEOUT ?= "45m"
+KONG_CONTROLLER_FEATURE_GATES ?= Gateway=true
 
 .PHONY: test
 test: test.unit
@@ -208,7 +205,10 @@ test.conformance:
 		./test/conformance
 
 .PHONY: test.integration
-test.integration: test.integration.enterprise.postgres  test.integration.dbless test.integration.postgres
+test.integration: test.integration.dbless test.integration.postgres
+
+.PHONY: test.integration.enterprise
+test.integration.enterprise: test.integration.enterprise.postgres
 
 .PHONY: test.unit
 test.unit:
@@ -222,7 +222,8 @@ test.unit:
 .PHONY: test.integration.dbless
 test.integration.dbless:
 	@./scripts/check-container-environment.sh
-	@TEST_DATABASE_MODE="off" GOFLAGS="-tags=integration_tests" go test -v -race \
+	@TEST_DATABASE_MODE="off" GOFLAGS="-tags=integration_tests" KONG_CONTROLLER_FEATURE_GATES=$(KONG_CONTROLLER_FEATURE_GATES) \
+		go test -v -race \
 		-timeout $(INTEGRATION_TEST_TIMEOUT) \
 		-parallel $(NCPU) \
 		-race \
@@ -234,7 +235,8 @@ test.integration.dbless:
 .PHONY: test.integration.postgres
 test.integration.postgres:
 	@./scripts/check-container-environment.sh
-	@TEST_DATABASE_MODE="postgres" GOFLAGS="-tags=integration_tests" go test -v \
+	@TEST_DATABASE_MODE="postgres" GOFLAGS="-tags=integration_tests" KONG_CONTROLLER_FEATURE_GATES=$(KONG_CONTROLLER_FEATURE_GATES) \
+		go test -v \
 		-timeout $(INTEGRATION_TEST_TIMEOUT) \
 		-parallel $(NCPU) \
 		-race \
@@ -246,7 +248,8 @@ test.integration.postgres:
 .PHONY: test.integration.enterprise.postgres
 test.integration.enterprise.postgres:
 	@./scripts/check-container-environment.sh
-	@TEST_DATABASE_MODE="postgres" TEST_KONG_ENTERPRISE="true" GOFLAGS="-tags=integration_tests" go test -v \
+	@TEST_DATABASE_MODE="postgres" TEST_KONG_ENTERPRISE="true" GOFLAGS="-tags=integration_tests" KONG_CONTROLLER_FEATURE_GATES=$(KONG_CONTROLLER_FEATURE_GATES) \
+		go test -v \
 		-timeout $(INTEGRATION_TEST_TIMEOUT) \
 		-parallel $(NCPU) \
 		-race \
@@ -254,10 +257,6 @@ test.integration.enterprise.postgres:
 		-coverpkg=$(PKG_LIST) \
 		-coverprofile=coverage.enterprisepostgres.out \
 		./test/integration
-
-.PHONY: test.integration.legacy
-test.integration.legacy: container
-	KIC_IMAGE="${IMAGE}:${TAG}" KUBE_VERSION=${KUBE_VERSION} ./hack/legacy/test/test.sh
 
 .PHONY: test.e2e
 test.e2e:
@@ -295,26 +294,85 @@ debug: install
 		--kong-admin-url $(KONG_ADMIN_URL) \
 		--publish-service $(KONG_NAMESPACE)/$(KONG_PROXY_SERVICE) \
 		--kubeconfig $(KUBECONFIG) \
-		--feature-gates=Gateway=true
+		--feature-gates=$(KONG_CONTROLLER_FEATURE_GATES)
 
 run: install
 	go run ./internal/cmd/main.go \
 		--kong-admin-url $(KONG_ADMIN_URL) \
 		--publish-service $(KONG_NAMESPACE)/$(KONG_PROXY_SERVICE) \
 		--kubeconfig $(KUBECONFIG) \
-		--feature-gates=Gateway=true
+		--feature-gates=$(KONG_CONTROLLER_FEATURE_GATES)
 
-install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+# ------------------------------------------------------------------------------
+# Gateway API
+# ------------------------------------------------------------------------------
+
+GATEWAY_API_PACKAGE ?= sigs.k8s.io/gateway-api
+# TODO: Below hardcoded ref is a workaround for the fact that we're using an untagged version
+#       of sigs.k8s.io/gateway-api in go.mod - that occurred after v0.4.0 (which was tagged on master)
+#       but which contains a breaking change w.r.t to the file structure in said repo - and the
+#       fact that kustomize accepts only branch names, tags, or full commit hashes, i.e. short
+#       hashes or go pseudo versions are not supported [1].
+#       Please also note that kustomize fails silently when provided with an unsupported ref
+#       and downloads the manifests from the main branch.
+#
+#       [1]: https://github.com/kubernetes-sigs/kustomize/blob/master/examples/remoteBuild.md#remote-directories
+#
+#       This causes a problem where we cannot use go pseudo version from go.mod i.e.
+#       v0.4.1-0.20220306235253-71fee1c2808f and where we cannot update to a newer version
+#       sigs.k8s.io/gateway-api because v0.5.0 hasn't been released yet and v0.4.x versions
+#       do not contain the change in file structure that some of the code in this repo already
+#       relies on.
+#
+#       In order to avoid unnecessary work we're just hardcoding the full SHA that
+#       corresponds to what's in go.mod - v0.4.1-0.20220306235253-71fee1c2808f - until
+#       v0.5.0 is released which we can then use in go.mod and scrape via go list ...
+# 
+#       Whenever the above happens the hardcoded SHA can be replaced with:
+#       $(shell go list -m -f "{{.Version}}" $(GATEWAY_API_PACKAGE))
+#
+#       Related issue: https://github.com/Kong/kubernetes-ingress-controller/issues/2595
+GATEWAY_API_VERSION ?= 71fee1c2808fa19a5f19d952d155fc072cf9324c
+GATEWAY_API_CRDS_LOCAL_PATH = $(shell go env GOPATH)/pkg/mod/$(GATEWAY_API_PACKAGE)@$(GATEWAY_API_VERSION)/config/crd
+GATEWAY_API_REPO ?= github.com/kubernetes-sigs/gateway-api
+GATEWAY_API_CRDS_URL = $(GATEWAY_API_REPO)/config/crd?ref=$(GATEWAY_API_VERSION)
+
+.PHONY: print-gateway-api-crds-url
+print-gateway-api-crds-url:
+	@echo $(GATEWAY_API_CRDS_URL)
+
+.PHONY: generate.gateway-api-crds-url
+generate.gateway-api-crds-url:
+	URL=$(shell $(MAKE) print-gateway-api-crds-url) \
+		INPUT=$(shell pwd)/test/internal/cmd/generate-gateway-api-crds-url/gateway_consts.tmpl \
+		OUTPUT=$(shell pwd)/test/consts/gateway.go \
+		go generate ./test/internal/cmd/generate-gateway-api-crds-url
+
+.PHONY: go-mod-download-gateway-api
+go-mod-download-gateway-api:
+	@go mod download $(GATEWAY_API_PACKAGE)
+
+.PHONY: install-gateway-api-crds
+install-gateway-api-crds: go-mod-download-gateway-api
+	$(KUSTOMIZE) build $(GATEWAY_API_CRDS_LOCAL_PATH) | kubectl apply -f -
+
+.PHONY: uninstall-gateway-api-crds
+uninstall-gateway-api-crds: go-mod-download-gateway-api
+	$(KUSTOMIZE) build $(GATEWAY_API_CRDS_LOCAL_PATH) | kubectl delete -f -
+
+# Install CRDs into the K8s cluster specified in $KUBECONFIG.
+.PHONY: install
+install: manifests kustomize install-gateway-api-crds
 	$(KUSTOMIZE) build config/crd | kubectl apply -f -
-	$(KUSTOMIZE) build https://github.com/kubernetes-sigs/gateway-api.git/config/crd?ref=master | kubectl apply -f -
 
-uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config.
+# Uninstall CRDs from the K8s cluster specified in $KUBECONFIG.
+.PHONY: uninstall
+uninstall: manifests kustomize uninstall-gateway-api-crds
 	$(KUSTOMIZE) build config/crd | kubectl delete -f -
-	$(KUSTOMIZE) build https://github.com/kubernetes-sigs/gateway-api.git/config/crd?ref=master | kubectl delete -f -
 
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in $KUBECONFIG.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMAGE}
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
-undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
+undeploy: ## Undeploy controller from the K8s cluster specified in $KUBECONFIG.
 	$(KUSTOMIZE) build config/default | kubectl delete -f -

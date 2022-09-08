@@ -354,7 +354,8 @@ func TestSecretConfigurationPlugin(t *testing.T) {
 					},
 				},
 			},
-		}}
+		},
+	}
 	t.Run("plugins with secret configuration are processed correctly",
 		func(t *testing.T) {
 			objects := stock
@@ -2101,7 +2102,7 @@ func TestKnativeIngressAndPlugins(t *testing.T) {
 					Name:      "knative-ingress-with-override",
 					Namespace: "foo-ns",
 					Annotations: map[string]string{
-						"networking.knative.dev/ingress.class":                      annotations.DefaultIngressClass,
+						"networking.knative.dev/ingress-class":                      annotations.DefaultIngressClass,
 						annotations.AnnotationPrefix + annotations.ConfigurationKey: "https-only",
 					},
 				},
@@ -2181,7 +2182,7 @@ func TestKnativeIngressAndPlugins(t *testing.T) {
 					Name:      "knative-ingress-without-override",
 					Namespace: "foo-ns",
 					Annotations: map[string]string{
-						"networking.knative.dev/ingress.class": annotations.DefaultIngressClass,
+						"networking.knative.dev/ingress-class": annotations.DefaultIngressClass,
 					},
 				},
 				Spec: knative.IngressSpec{
@@ -2260,7 +2261,7 @@ func TestKnativeIngressAndPlugins(t *testing.T) {
 					Name:      "knative-ingress-with-annotations",
 					Namespace: "foo-ns",
 					Annotations: map[string]string{
-						"networking.knative.dev/ingress.class":                          annotations.DefaultIngressClass,
+						"networking.knative.dev/ingress-class":                          annotations.DefaultIngressClass,
 						annotations.AnnotationPrefix + annotations.ProtocolsKey:         "https",
 						annotations.AnnotationPrefix + annotations.HTTPSRedirectCodeKey: "308",
 						annotations.AnnotationPrefix + annotations.StripPathKey:         "true",
@@ -2332,7 +2333,7 @@ func TestKnativeIngressAndPlugins(t *testing.T) {
 					Name:      "knative-ingress",
 					Namespace: "foo-ns",
 					Annotations: map[string]string{
-						"networking.knative.dev/ingress.class": annotations.DefaultIngressClass,
+						"networking.knative.dev/ingress-class": annotations.DefaultIngressClass,
 					},
 				},
 				Spec: knative.IngressSpec{
@@ -2371,7 +2372,7 @@ func TestKnativeIngressAndPlugins(t *testing.T) {
 					Namespace: "foo-ns",
 					Annotations: map[string]string{
 						annotations.AnnotationPrefix + annotations.PluginsKey: "knative-key-auth",
-						"networking.knative.dev/ingress.class":                annotations.DefaultIngressClass,
+						"networking.knative.dev/ingress-class":                annotations.DefaultIngressClass,
 					},
 				},
 			},
@@ -4683,7 +4684,7 @@ func TestCertificate(t *testing.T) {
 		assert.Nil(err)
 		assert.NotNil(state)
 		assert.Equal(3, len(state.Certificates))
-		//foo.com with cert should be fixed
+		// foo.com with cert should be fixed
 		assert.Contains(state.Certificates, fooCertificate)
 	})
 	t.Run("SNIs slice with same certificate should be ordered by asc", func(t *testing.T) {

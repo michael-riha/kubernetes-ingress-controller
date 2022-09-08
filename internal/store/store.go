@@ -85,6 +85,9 @@ type Storer interface {
 	ListHTTPRoutes() ([]*gatewayv1alpha2.HTTPRoute, error)
 	ListUDPRoutes() ([]*gatewayv1alpha2.UDPRoute, error)
 	ListTCPRoutes() ([]*gatewayv1alpha2.TCPRoute, error)
+	ListTLSRoutes() ([]*gatewayv1alpha2.TLSRoute, error)
+	ListReferencePolicies() ([]*gatewayv1alpha2.ReferencePolicy, error)
+	ListGateways() ([]*gatewayv1alpha2.Gateway, error)
 	ListTCPIngresses() ([]*kongv1beta1.TCPIngress, error)
 	ListUDPIngresses() ([]*kongv1beta1.UDPIngress, error)
 	ListKnativeIngresses() ([]*knative.Ingress, error)
@@ -125,9 +128,12 @@ type CacheStores struct {
 	Endpoint       cache.Store
 
 	// Gateway API Stores
-	HTTPRoute cache.Store
-	UDPRoute  cache.Store
-	TCPRoute  cache.Store
+	HTTPRoute       cache.Store
+	UDPRoute        cache.Store
+	TCPRoute        cache.Store
+	TLSRoute        cache.Store
+	ReferencePolicy cache.Store
+	Gateway         cache.Store
 
 	// Kong Stores
 	Plugin        cache.Store
@@ -144,25 +150,29 @@ type CacheStores struct {
 }
 
 // NewCacheStores is a convenience function for CacheStores to initialize all attributes with new cache stores
-func NewCacheStores() (c CacheStores) {
-	c.ClusterPlugin = cache.NewStore(clusterResourceKeyFunc)
-	c.Consumer = cache.NewStore(keyFunc)
-	c.Endpoint = cache.NewStore(keyFunc)
-	c.IngressV1 = cache.NewStore(keyFunc)
-	c.IngressClassV1 = cache.NewStore(clusterResourceKeyFunc)
-	c.IngressV1beta1 = cache.NewStore(keyFunc)
-	c.HTTPRoute = cache.NewStore(keyFunc)
-	c.UDPRoute = cache.NewStore(keyFunc)
-	c.TCPRoute = cache.NewStore(keyFunc)
-	c.KnativeIngress = cache.NewStore(keyFunc)
-	c.Plugin = cache.NewStore(keyFunc)
-	c.Secret = cache.NewStore(keyFunc)
-	c.Service = cache.NewStore(keyFunc)
-	c.TCPIngress = cache.NewStore(keyFunc)
-	c.UDPIngress = cache.NewStore(keyFunc)
-	c.KongIngress = cache.NewStore(keyFunc)
-	c.l = &sync.RWMutex{}
-	return
+func NewCacheStores() CacheStores {
+	return CacheStores{
+		IngressV1beta1:  cache.NewStore(keyFunc),
+		IngressV1:       cache.NewStore(keyFunc),
+		IngressClassV1:  cache.NewStore(clusterResourceKeyFunc),
+		Service:         cache.NewStore(keyFunc),
+		Secret:          cache.NewStore(keyFunc),
+		Endpoint:        cache.NewStore(keyFunc),
+		HTTPRoute:       cache.NewStore(keyFunc),
+		UDPRoute:        cache.NewStore(keyFunc),
+		TCPRoute:        cache.NewStore(keyFunc),
+		TLSRoute:        cache.NewStore(keyFunc),
+		ReferencePolicy: cache.NewStore(keyFunc),
+		Gateway:         cache.NewStore(keyFunc),
+		Plugin:          cache.NewStore(keyFunc),
+		ClusterPlugin:   cache.NewStore(clusterResourceKeyFunc),
+		Consumer:        cache.NewStore(keyFunc),
+		KongIngress:     cache.NewStore(keyFunc),
+		TCPIngress:      cache.NewStore(keyFunc),
+		UDPIngress:      cache.NewStore(keyFunc),
+		KnativeIngress:  cache.NewStore(keyFunc),
+		l:               &sync.RWMutex{},
+	}
 }
 
 // NewCacheStoresFromObjYAML provides a new CacheStores object given any number of byte arrays containing
@@ -239,6 +249,12 @@ func (c CacheStores) Get(obj runtime.Object) (item interface{}, exists bool, err
 		return c.UDPRoute.Get(obj)
 	case *gatewayv1alpha2.TCPRoute:
 		return c.TCPRoute.Get(obj)
+	case *gatewayv1alpha2.TLSRoute:
+		return c.TLSRoute.Get(obj)
+	case *gatewayv1alpha2.ReferencePolicy:
+		return c.ReferencePolicy.Get(obj)
+	case *gatewayv1alpha2.Gateway:
+		return c.Gateway.Get(obj)
 	// ----------------------------------------------------------------------------
 	// Kong API Support
 	// ----------------------------------------------------------------------------
@@ -296,6 +312,12 @@ func (c CacheStores) Add(obj runtime.Object) error {
 		return c.UDPRoute.Add(obj)
 	case *gatewayv1alpha2.TCPRoute:
 		return c.TCPRoute.Add(obj)
+	case *gatewayv1alpha2.TLSRoute:
+		return c.TLSRoute.Add(obj)
+	case *gatewayv1alpha2.ReferencePolicy:
+		return c.ReferencePolicy.Add(obj)
+	case *gatewayv1alpha2.Gateway:
+		return c.Gateway.Add(obj)
 	// ----------------------------------------------------------------------------
 	// Kong API Support
 	// ----------------------------------------------------------------------------
@@ -354,6 +376,12 @@ func (c CacheStores) Delete(obj runtime.Object) error {
 		return c.UDPRoute.Delete(obj)
 	case *gatewayv1alpha2.TCPRoute:
 		return c.TCPRoute.Delete(obj)
+	case *gatewayv1alpha2.TLSRoute:
+		return c.TLSRoute.Delete(obj)
+	case *gatewayv1alpha2.ReferencePolicy:
+		return c.ReferencePolicy.Delete(obj)
+	case *gatewayv1alpha2.Gateway:
+		return c.Gateway.Delete(obj)
 	// ----------------------------------------------------------------------------
 	// Kong API Support
 	// ----------------------------------------------------------------------------
@@ -381,7 +409,8 @@ func (c CacheStores) Delete(obj runtime.Object) error {
 
 // New creates a new object store to be used in the ingress controller
 func New(cs CacheStores, ingressClass string, processClasslessIngressV1Beta1 bool, processClasslessIngressV1 bool,
-	processClasslessKongConsumer bool, logger logrus.FieldLogger) Storer {
+	processClasslessKongConsumer bool, logger logrus.FieldLogger,
+) Storer {
 	var ingressV1Beta1ClassMatching annotations.ClassMatching
 	var ingressV1ClassMatching annotations.ClassMatching
 	var kongConsumerClassMatching annotations.ClassMatching
@@ -566,6 +595,54 @@ func (s Store) ListTCPRoutes() ([]*gatewayv1alpha2.TCPRoute, error) {
 	return tcproutes, nil
 }
 
+// ListTLSRoutes returns the list of TLSRoutes in the TLSRoute cache store.
+func (s Store) ListTLSRoutes() ([]*gatewayv1alpha2.TLSRoute, error) {
+	var tlsroutes []*gatewayv1alpha2.TLSRoute
+	if err := cache.ListAll(s.stores.TLSRoute, labels.NewSelector(),
+		func(ob interface{}) {
+			tlsroute, ok := ob.(*gatewayv1alpha2.TLSRoute)
+			if ok {
+				tlsroutes = append(tlsroutes, tlsroute)
+			}
+		},
+	); err != nil {
+		return nil, err
+	}
+	return tlsroutes, nil
+}
+
+// ListReferencePolicies returns the list of ReferencePolicies in the ReferencePolicy cache store.
+func (s Store) ListReferencePolicies() ([]*gatewayv1alpha2.ReferencePolicy, error) {
+	var policies []*gatewayv1alpha2.ReferencePolicy
+	if err := cache.ListAll(s.stores.ReferencePolicy, labels.NewSelector(),
+		func(ob interface{}) {
+			policy, ok := ob.(*gatewayv1alpha2.ReferencePolicy)
+			if ok {
+				policies = append(policies, policy)
+			}
+		},
+	); err != nil {
+		return nil, err
+	}
+	return policies, nil
+}
+
+// ListGateways returns the list of Gateways in the Gateway cache store.
+func (s Store) ListGateways() ([]*gatewayv1alpha2.Gateway, error) {
+	var gateways []*gatewayv1alpha2.Gateway
+	if err := cache.ListAll(s.stores.Gateway, labels.NewSelector(),
+		func(ob interface{}) {
+			gw, ok := ob.(*gatewayv1alpha2.Gateway)
+			if ok {
+				gateways = append(gateways, gw)
+			}
+		},
+	); err != nil {
+		return nil, err
+	}
+	return gateways, nil
+}
+
 // ListTCPIngresses returns the list of TCP Ingresses from
 // configuration.konghq.com group.
 func (s Store) ListTCPIngresses() ([]*kongv1beta1.TCPIngress, error) {
@@ -622,9 +699,12 @@ func (s Store) ListKnativeIngresses() ([]*knative.Ingress, error) {
 		labels.NewSelector(),
 		func(ob interface{}) {
 			ing, ok := ob.(*knative.Ingress)
-			if ok && s.isValidIngressClass(&ing.ObjectMeta, annotations.KnativeIngressClassKey,
-				s.getIngressClassHandling()) {
-				ingresses = append(ingresses, ing)
+			if ok {
+				handlingClass := s.getIngressClassHandling()
+				if s.isValidIngressClass(&ing.ObjectMeta, annotations.KnativeIngressClassKey, handlingClass) ||
+					s.isValidIngressClass(&ing.ObjectMeta, annotations.KnativeIngressClassDeprecatedKey, handlingClass) {
+					ingresses = append(ingresses, ing)
+				}
 			}
 		})
 	if err != nil {
@@ -735,7 +815,6 @@ func (s Store) ListKongConsumers() []*kongv1.KongConsumer {
 // Support for these global namespaced KongPlugins was removed in 0.10.0
 // This function remains only to provide warnings to users with old configuration
 func (s Store) ListGlobalKongPlugins() ([]*kongv1.KongPlugin, error) {
-
 	var plugins []*kongv1.KongPlugin
 	// var globalPlugins []*configurationv1.KongPlugin
 	req, err := labels.NewRequirement("global", selection.Equals, []string{"true"})

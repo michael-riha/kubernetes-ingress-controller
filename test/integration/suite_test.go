@@ -21,8 +21,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 
 	testutils "github.com/kong/kubernetes-ingress-controller/v2/internal/util/test"
+)
+
+var (
+	k8sClient *kubernetes.Clientset
 )
 
 // -----------------------------------------------------------------------------
@@ -95,6 +101,10 @@ func TestMain(m *testing.M) {
 	var err error
 	env, err = builder.Build(ctx)
 	exitOnErr(err)
+	k8sClient = env.Cluster().Client()
+
+	cleaner := clusters.NewCleaner(env.Cluster())
+	defer cleaner.Cleanup(ctx)
 
 	fmt.Printf("INFO: reconfiguring the kong admin service as LoadBalancer type\n")
 	svc, err := env.Cluster().Client().CoreV1().Services(kongAddon.Namespace()).Get(ctx, kong.DefaultAdminServiceName, metav1.GetOptions{})
@@ -143,6 +153,11 @@ func TestMain(m *testing.M) {
 				exitOnErr(err)
 			}
 		}
+		fmt.Println("INFO: configuring feature gates")
+		if controllerFeatureGates == "" {
+			controllerFeatureGates = defaultFeatureGates
+		}
+		fmt.Printf("INFO: feature gates enabled: %s\n", controllerFeatureGates)
 		fmt.Println("INFO: starting the controller manager")
 		standardControllerArgs := []string{
 			fmt.Sprintf("--ingress-class=%s", ingressClass),
@@ -153,12 +168,20 @@ func TestMain(m *testing.M) {
 			"--dump-config",
 			"--log-level=trace",
 			"--debug-log-reduce-redundancy",
-			"--feature-gates=Gateway=true",
+			fmt.Sprintf("--feature-gates=%s", controllerFeatureGates),
 			fmt.Sprintf("--election-namespace=%s", kongAddon.Namespace()),
 		}
 		allControllerArgs := append(standardControllerArgs, extraControllerArgs...)
 		exitOnErr(testutils.DeployControllerManagerForCluster(ctx, env.Cluster(), allControllerArgs...))
 	}
+
+	gatewayClient, err := gatewayclient.NewForConfig(env.Cluster().Config())
+	exitOnErr(err)
+
+	fmt.Println("INFO: Deploying the default GatewayClass")
+	gwc, err := DeployGatewayClass(ctx, gatewayClient, managedGatewayClassName)
+	exitOnErr(err)
+	cleaner.Add(gwc)
 
 	fmt.Printf("INFO: testing environment is ready KUBERNETES_VERSION=(%v): running tests\n", clusterVersion)
 	code := m.Run()

@@ -20,7 +20,6 @@ package configuration
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"time"
 
@@ -68,7 +67,9 @@ type CoreV1ServiceReconciler struct {
 func (r *CoreV1ServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("CoreV1Service", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
@@ -139,7 +140,9 @@ type CoreV1EndpointsReconciler struct {
 func (r *CoreV1EndpointsReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("CoreV1Endpoints", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
@@ -210,7 +213,9 @@ type CoreV1SecretReconciler struct {
 func (r *CoreV1SecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("CoreV1Secret", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
@@ -280,13 +285,16 @@ type NetV1IngressReconciler struct {
 	StatusQueue            *status.Queue
 
 	IngressClassName string
+	DisableIngressClassLookups bool
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *NetV1IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("NetV1Ingress", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
@@ -304,13 +312,15 @@ func (r *NetV1IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return err
 		}
 	}
-	err = c.Watch(
-		&source.Kind{Type: &netv1.IngressClass{}},
-		handler.EnqueueRequestsFromMapFunc(r.listClassless),
-		predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
-	)
-	if err != nil {
-		return err
+	if !r.DisableIngressClassLookups {
+		err = c.Watch(
+			&source.Kind{Type: &netv1.IngressClass{}},
+			handler.EnqueueRequestsFromMapFunc(r.listClassless),
+			predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
+		)
+		if err != nil {
+			return err
+		}
 	}
 	preds := ctrlutils.GeneratePredicateFuncsForIngressClassFilter(r.IngressClassName)
 	return c.Watch(
@@ -397,7 +407,7 @@ func (r *NetV1IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if r.DataplaneClient.AreKubernetesObjectReportsEnabled() {
 		log.V(util.DebugLevel).Info("determining whether data-plane configuration has succeeded", "namespace", req.Namespace, "name", req.Name)
 		if !r.DataplaneClient.KubernetesObjectIsConfigured(obj) {
-			log.V(util.DebugLevel).Error(fmt.Errorf("resource not yet configured in the data-plane"), "namespace", req.Namespace, "name", req.Name)
+			log.V(util.DebugLevel).Info("resource not yet configured in the data-plane", "namespace", req.Namespace, "name", req.Name)
 			return ctrl.Result{Requeue: true}, nil // requeue until the object has been properly configured
 		}
 
@@ -436,7 +446,9 @@ type NetV1IngressClassReconciler struct {
 func (r *NetV1IngressClassReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("NetV1IngressClass", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
@@ -505,13 +517,16 @@ type NetV1Beta1IngressReconciler struct {
 	StatusQueue            *status.Queue
 
 	IngressClassName string
+	DisableIngressClassLookups bool
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *NetV1Beta1IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("NetV1Beta1Ingress", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
@@ -529,13 +544,15 @@ func (r *NetV1Beta1IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return err
 		}
 	}
-	err = c.Watch(
-		&source.Kind{Type: &netv1.IngressClass{}},
-		handler.EnqueueRequestsFromMapFunc(r.listClassless),
-		predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
-	)
-	if err != nil {
-		return err
+	if !r.DisableIngressClassLookups {
+		err = c.Watch(
+			&source.Kind{Type: &netv1.IngressClass{}},
+			handler.EnqueueRequestsFromMapFunc(r.listClassless),
+			predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
+		)
+		if err != nil {
+			return err
+		}
 	}
 	preds := ctrlutils.GeneratePredicateFuncsForIngressClassFilter(r.IngressClassName)
 	return c.Watch(
@@ -622,7 +639,7 @@ func (r *NetV1Beta1IngressReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if r.DataplaneClient.AreKubernetesObjectReportsEnabled() {
 		log.V(util.DebugLevel).Info("determining whether data-plane configuration has succeeded", "namespace", req.Namespace, "name", req.Name)
 		if !r.DataplaneClient.KubernetesObjectIsConfigured(obj) {
-			log.V(util.DebugLevel).Error(fmt.Errorf("resource not yet configured in the data-plane"), "namespace", req.Namespace, "name", req.Name)
+			log.V(util.DebugLevel).Info("resource not yet configured in the data-plane", "namespace", req.Namespace, "name", req.Name)
 			return ctrl.Result{Requeue: true}, nil // requeue until the object has been properly configured
 		}
 
@@ -660,13 +677,16 @@ type ExtV1Beta1IngressReconciler struct {
 	StatusQueue            *status.Queue
 
 	IngressClassName string
+	DisableIngressClassLookups bool
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ExtV1Beta1IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("ExtV1Beta1Ingress", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
@@ -684,13 +704,15 @@ func (r *ExtV1Beta1IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return err
 		}
 	}
-	err = c.Watch(
-		&source.Kind{Type: &netv1.IngressClass{}},
-		handler.EnqueueRequestsFromMapFunc(r.listClassless),
-		predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
-	)
-	if err != nil {
-		return err
+	if !r.DisableIngressClassLookups {
+		err = c.Watch(
+			&source.Kind{Type: &netv1.IngressClass{}},
+			handler.EnqueueRequestsFromMapFunc(r.listClassless),
+			predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
+		)
+		if err != nil {
+			return err
+		}
 	}
 	preds := ctrlutils.GeneratePredicateFuncsForIngressClassFilter(r.IngressClassName)
 	return c.Watch(
@@ -777,7 +799,7 @@ func (r *ExtV1Beta1IngressReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if r.DataplaneClient.AreKubernetesObjectReportsEnabled() {
 		log.V(util.DebugLevel).Info("determining whether data-plane configuration has succeeded", "namespace", req.Namespace, "name", req.Name)
 		if !r.DataplaneClient.KubernetesObjectIsConfigured(obj) {
-			log.V(util.DebugLevel).Error(fmt.Errorf("resource not yet configured in the data-plane"), "namespace", req.Namespace, "name", req.Name)
+			log.V(util.DebugLevel).Info("resource not yet configured in the data-plane", "namespace", req.Namespace, "name", req.Name)
 			return ctrl.Result{Requeue: true}, nil // requeue until the object has been properly configured
 		}
 
@@ -816,7 +838,9 @@ type KongV1KongIngressReconciler struct {
 func (r *KongV1KongIngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("KongV1KongIngress", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
@@ -887,7 +911,9 @@ type KongV1KongPluginReconciler struct {
 func (r *KongV1KongPluginReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("KongV1KongPlugin", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
@@ -954,24 +980,29 @@ type KongV1KongClusterPluginReconciler struct {
 	DataplaneClient *dataplane.KongClient
 
 	IngressClassName string
+	DisableIngressClassLookups bool
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *KongV1KongClusterPluginReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("KongV1KongClusterPlugin", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
 	}
-	err = c.Watch(
-		&source.Kind{Type: &netv1.IngressClass{}},
-		handler.EnqueueRequestsFromMapFunc(r.listClassless),
-		predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
-	)
-	if err != nil {
-		return err
+	if !r.DisableIngressClassLookups {
+		err = c.Watch(
+			&source.Kind{Type: &netv1.IngressClass{}},
+			handler.EnqueueRequestsFromMapFunc(r.listClassless),
+			predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
+		)
+		if err != nil {
+			return err
+		}
 	}
 	preds := ctrlutils.GeneratePredicateFuncsForIngressClassFilter(r.IngressClassName)
 	return c.Watch(
@@ -1071,24 +1102,29 @@ type KongV1KongConsumerReconciler struct {
 	DataplaneClient *dataplane.KongClient
 
 	IngressClassName string
+	DisableIngressClassLookups bool
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *KongV1KongConsumerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("KongV1KongConsumer", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
 	}
-	err = c.Watch(
-		&source.Kind{Type: &netv1.IngressClass{}},
-		handler.EnqueueRequestsFromMapFunc(r.listClassless),
-		predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
-	)
-	if err != nil {
-		return err
+	if !r.DisableIngressClassLookups {
+		err = c.Watch(
+			&source.Kind{Type: &netv1.IngressClass{}},
+			handler.EnqueueRequestsFromMapFunc(r.listClassless),
+			predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
+		)
+		if err != nil {
+			return err
+		}
 	}
 	preds := ctrlutils.GeneratePredicateFuncsForIngressClassFilter(r.IngressClassName)
 	return c.Watch(
@@ -1191,13 +1227,16 @@ type KongV1Beta1TCPIngressReconciler struct {
 	StatusQueue            *status.Queue
 
 	IngressClassName string
+	DisableIngressClassLookups bool
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *KongV1Beta1TCPIngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("KongV1Beta1TCPIngress", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
@@ -1215,13 +1254,15 @@ func (r *KongV1Beta1TCPIngressReconciler) SetupWithManager(mgr ctrl.Manager) err
 			return err
 		}
 	}
-	err = c.Watch(
-		&source.Kind{Type: &netv1.IngressClass{}},
-		handler.EnqueueRequestsFromMapFunc(r.listClassless),
-		predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
-	)
-	if err != nil {
-		return err
+	if !r.DisableIngressClassLookups {
+		err = c.Watch(
+			&source.Kind{Type: &netv1.IngressClass{}},
+			handler.EnqueueRequestsFromMapFunc(r.listClassless),
+			predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
+		)
+		if err != nil {
+			return err
+		}
 	}
 	preds := ctrlutils.GeneratePredicateFuncsForIngressClassFilter(r.IngressClassName)
 	return c.Watch(
@@ -1308,7 +1349,7 @@ func (r *KongV1Beta1TCPIngressReconciler) Reconcile(ctx context.Context, req ctr
 	if r.DataplaneClient.AreKubernetesObjectReportsEnabled() {
 		log.V(util.DebugLevel).Info("determining whether data-plane configuration has succeeded", "namespace", req.Namespace, "name", req.Name)
 		if !r.DataplaneClient.KubernetesObjectIsConfigured(obj) {
-			log.V(util.DebugLevel).Error(fmt.Errorf("resource not yet configured in the data-plane"), "namespace", req.Namespace, "name", req.Name)
+			log.V(util.DebugLevel).Info("resource not yet configured in the data-plane", "namespace", req.Namespace, "name", req.Name)
 			return ctrl.Result{Requeue: true}, nil // requeue until the object has been properly configured
 		}
 
@@ -1346,13 +1387,16 @@ type KongV1Beta1UDPIngressReconciler struct {
 	StatusQueue            *status.Queue
 
 	IngressClassName string
+	DisableIngressClassLookups bool
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *KongV1Beta1UDPIngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("KongV1Beta1UDPIngress", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
@@ -1370,13 +1414,15 @@ func (r *KongV1Beta1UDPIngressReconciler) SetupWithManager(mgr ctrl.Manager) err
 			return err
 		}
 	}
-	err = c.Watch(
-		&source.Kind{Type: &netv1.IngressClass{}},
-		handler.EnqueueRequestsFromMapFunc(r.listClassless),
-		predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
-	)
-	if err != nil {
-		return err
+	if !r.DisableIngressClassLookups {
+		err = c.Watch(
+			&source.Kind{Type: &netv1.IngressClass{}},
+			handler.EnqueueRequestsFromMapFunc(r.listClassless),
+			predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
+		)
+		if err != nil {
+			return err
+		}
 	}
 	preds := ctrlutils.GeneratePredicateFuncsForIngressClassFilter(r.IngressClassName)
 	return c.Watch(
@@ -1463,7 +1509,7 @@ func (r *KongV1Beta1UDPIngressReconciler) Reconcile(ctx context.Context, req ctr
 	if r.DataplaneClient.AreKubernetesObjectReportsEnabled() {
 		log.V(util.DebugLevel).Info("determining whether data-plane configuration has succeeded", "namespace", req.Namespace, "name", req.Name)
 		if !r.DataplaneClient.KubernetesObjectIsConfigured(obj) {
-			log.V(util.DebugLevel).Error(fmt.Errorf("resource not yet configured in the data-plane"), "namespace", req.Namespace, "name", req.Name)
+			log.V(util.DebugLevel).Info("resource not yet configured in the data-plane", "namespace", req.Namespace, "name", req.Name)
 			return ctrl.Result{Requeue: true}, nil // requeue until the object has been properly configured
 		}
 
@@ -1501,13 +1547,16 @@ type Knativev1alpha1IngressReconciler struct {
 	StatusQueue            *status.Queue
 
 	IngressClassName string
+	DisableIngressClassLookups bool
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *Knativev1alpha1IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("Knativev1alpha1Ingress", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
@@ -1525,13 +1574,15 @@ func (r *Knativev1alpha1IngressReconciler) SetupWithManager(mgr ctrl.Manager) er
 			return err
 		}
 	}
-	err = c.Watch(
-		&source.Kind{Type: &netv1.IngressClass{}},
-		handler.EnqueueRequestsFromMapFunc(r.listClassless),
-		predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
-	)
-	if err != nil {
-		return err
+	if !r.DisableIngressClassLookups {
+		err = c.Watch(
+			&source.Kind{Type: &netv1.IngressClass{}},
+			handler.EnqueueRequestsFromMapFunc(r.listClassless),
+			predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
+		)
+		if err != nil {
+			return err
+		}
 	}
 	preds := ctrlutils.GeneratePredicateFuncsForIngressClassFilter(r.IngressClassName)
 	return c.Watch(
@@ -1618,7 +1669,7 @@ func (r *Knativev1alpha1IngressReconciler) Reconcile(ctx context.Context, req ct
 	if r.DataplaneClient.AreKubernetesObjectReportsEnabled() {
 		log.V(util.DebugLevel).Info("determining whether data-plane configuration has succeeded", "namespace", req.Namespace, "name", req.Name)
 		if !r.DataplaneClient.KubernetesObjectIsConfigured(obj) {
-			log.V(util.DebugLevel).Error(fmt.Errorf("resource not yet configured in the data-plane"), "namespace", req.Namespace, "name", req.Name)
+			log.V(util.DebugLevel).Info("resource not yet configured in the data-plane", "namespace", req.Namespace, "name", req.Name)
 			return ctrl.Result{Requeue: true}, nil // requeue until the object has been properly configured
 		}
 

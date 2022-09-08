@@ -1,6 +1,7 @@
 package util
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -8,7 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/go-logr/logr"
+
+	"github.com/kong/kubernetes-ingress-controller/v2/internal/meshdetect"
 )
 
 var (
@@ -41,7 +44,10 @@ type Reporter struct {
 
 	serializedInfo string
 
-	Logger logrus.FieldLogger
+	Logger logr.Logger
+
+	MeshDetectionEnabled bool
+	MeshDetector         *meshdetect.Detector
 }
 
 func (r *Reporter) once() {
@@ -91,20 +97,59 @@ func (r *Reporter) sendPing(uptime int) {
 func (r *Reporter) send(signal string, uptime int) {
 	message := "<14>signal=" + signal + ";uptime=" +
 		strconv.Itoa(uptime) + ";" + r.serializedInfo
+	// run mesh detection if enabled.
+	if r.MeshDetectionEnabled {
+		meshMessage, err := r.getMeshMessages(context.Background())
+		if err != nil {
+			// log the error if mesh detection fails,
+			// but still send the messages without mesh detection results.
+			r.Logger.V(DebugLevel).Info("failed to run mesh detection", "error", err)
+		} else {
+			// append results from mesh detection to reported message if returned any.
+			if meshMessage != "" {
+				if !strings.HasSuffix(message, ";") {
+					message = message + ";"
+				}
+				message = message + meshMessage
+			}
+		}
+	}
+
 	conn, err := tls.DialWithDialer(&dialer, "tcp", net.JoinHostPort(reportsHost,
 		strconv.FormatUint(uint64(reportsPort), 10)), &tlsConf)
 	if err != nil {
-		r.Logger.Errorf("failed to connect to reporting server: %s", err)
+		r.Logger.V(DebugLevel).Info("failed to connect to reporting server", "error", err)
 		return
 	}
 	err = conn.SetDeadline(time.Now().Add(time.Minute))
 	if err != nil {
-		r.Logger.Errorf("failed to set report connection deadline: %s", err)
+		r.Logger.V(DebugLevel).Info("failed to set report connection deadline", "error", err)
 		return
 	}
 	defer conn.Close()
 	_, err = conn.Write([]byte(message))
 	if err != nil {
-		r.Logger.Errorf("failed to send report: %s", err)
+		r.Logger.V(DebugLevel).Info("failed to send report", "error", err)
 	}
+}
+
+// getMeshMessages returns serialized messages of results of mesh detection.
+func (r *Reporter) getMeshMessages(ctx context.Context) (string, error) {
+	if r.MeshDetector == nil {
+		return "", fmt.Errorf("no mesh detector")
+	}
+
+	meshMessages := []string{}
+	deploymentResults := r.MeshDetector.DetectMeshDeployment(ctx)
+	meshMessages = append(meshMessages, serializeMeshDeploymentResults(deploymentResults))
+
+	runUnderResults := r.MeshDetector.DetectRunUnder(ctx)
+	meshMessages = append(meshMessages, serializeMeshRunUnderResults(runUnderResults))
+
+	serviceDistributionResults, detectErr := r.MeshDetector.DetectServiceDistribution(ctx)
+	if detectErr != nil {
+		return "", fmt.Errorf("failed to detect service distribution under meshes: %w", detectErr)
+	}
+	meshMessages = append(meshMessages, serializeMeshServiceDistribution(serviceDistributionResults))
+	return strings.Join(meshMessages, ";"), nil
 }

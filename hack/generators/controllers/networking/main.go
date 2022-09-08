@@ -325,7 +325,7 @@ func (needed necessary) generate() error {
 		}
 	}
 
-	return os.WriteFile(outputFile, contents.Bytes(), 0600)
+	return os.WriteFile(outputFile, contents.Bytes(), 0o600)
 }
 
 type typeNeeded struct {
@@ -391,7 +391,6 @@ package configuration
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"time"
 
@@ -451,6 +450,7 @@ type {{.PackageAlias}}{{.Kind}}Reconciler struct {
 {{- if or .AcceptsIngressClassNameSpec .AcceptsIngressClassNameAnnotation}}
 
 	IngressClassName string
+	DisableIngressClassLookups bool
 {{- end}}
 }
 
@@ -458,7 +458,9 @@ type {{.PackageAlias}}{{.Kind}}Reconciler struct {
 func (r *{{.PackageAlias}}{{.Kind}}Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := controller.New("{{.PackageAlias}}{{.Kind}}", mgr, controller.Options{
 		Reconciler: r,
-		Log:        r.Log,
+		LogConstructor: func(_ *reconcile.Request) logr.Logger {
+			return r.Log
+		},
 	})
 	if err != nil {
 		return err
@@ -480,13 +482,15 @@ func (r *{{.PackageAlias}}{{.Kind}}Reconciler) SetupWithManager(mgr ctrl.Manager
 	}
 {{- end}}
 {{- if .AcceptsIngressClassNameAnnotation}}
-	err = c.Watch(
-		&source.Kind{Type: &netv1.IngressClass{}},
-		handler.EnqueueRequestsFromMapFunc(r.listClassless),
-		predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
-	)
-	if err != nil {
-		return err
+	if !r.DisableIngressClassLookups {
+		err = c.Watch(
+			&source.Kind{Type: &netv1.IngressClass{}},
+			handler.EnqueueRequestsFromMapFunc(r.listClassless),
+			predicate.NewPredicateFuncs(ctrlutils.IsDefaultIngressClass),
+		)
+		if err != nil {
+			return err
+		}
 	}
 	preds := ctrlutils.GeneratePredicateFuncsForIngressClassFilter(r.IngressClassName)
 {{- end}}
@@ -583,7 +587,7 @@ func (r *{{.PackageAlias}}{{.Kind}}Reconciler) Reconcile(ctx context.Context, re
 	if r.DataplaneClient.AreKubernetesObjectReportsEnabled() {
 		log.V(util.DebugLevel).Info("determining whether data-plane configuration has succeeded", "namespace", req.Namespace, "name", req.Name)
 		if !r.DataplaneClient.KubernetesObjectIsConfigured(obj) {
-			log.V(util.DebugLevel).Error(fmt.Errorf("resource not yet configured in the data-plane"), "namespace", req.Namespace, "name", req.Name)
+			log.V(util.DebugLevel).Info("resource not yet configured in the data-plane", "namespace", req.Namespace, "name", req.Name)
 			return ctrl.Result{Requeue: true}, nil // requeue until the object has been properly configured
 		}
 

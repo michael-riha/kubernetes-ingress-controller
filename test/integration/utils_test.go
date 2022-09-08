@@ -18,12 +18,14 @@ import (
 	"time"
 
 	"github.com/blang/semver/v4"
+	"github.com/google/uuid"
 	"github.com/kong/go-kong/kong"
 	"github.com/kong/kubernetes-testing-framework/pkg/clusters"
 	"github.com/kong/kubernetes-testing-framework/pkg/environments"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // -----------------------------------------------------------------------------
@@ -56,18 +58,6 @@ var (
 
 	// cancel is the cancel function for the above global test context
 	cancel context.CancelFunc
-
-	// httpBinImage is the container image name we use for deploying the "httpbin" HTTP testing tool.
-	// if you need a simple HTTP server for tests you're writing, use this and check the documentation.
-	// See: https://github.com/postmanlabs/httpbin
-	httpBinImage = "kennethreitz/httpbin"
-
-	// tcpEchoImage echoes TCP text sent to it after printing out basic information about its environment, e.g.
-	// Welcome, you are connected to node kind-control-plane.
-	// Running on Pod tcp-echo-58ccd6b78d-hn9t8.
-	// In namespace foo.
-	// With IP address 10.244.0.13.
-	tcpEchoImage = "cjimti/go-echo"
 
 	// redisImage is Redis
 	redisImage = "bitnami/redis"
@@ -104,6 +94,14 @@ var (
 	clusterVersion semver.Version
 )
 
+const (
+	// defaultFeatureGates is the default feature gates setting that should be
+	// provided if none are provided by the user. This generally includes features
+	// that are innocuous, or otherwise don't actually get triggered unless the
+	// user takes further action.
+	defaultFeatureGates = "Gateway=true"
+)
+
 // -----------------------------------------------------------------------------
 // Testing Variables - Environment Overrides
 // -----------------------------------------------------------------------------
@@ -126,6 +124,10 @@ var (
 
 	// kongEnterpriseEnabled enables Enterprise-specific tests when set to "true"
 	kongEnterpriseEnabled = os.Getenv("TEST_KONG_ENTERPRISE")
+
+	// controllerFeatureGates contains the feature gates that should be enabled
+	// for test runs.
+	controllerFeatureGates = os.Getenv("KONG_CONTROLLER_FEATURE_GATES")
 )
 
 // -----------------------------------------------------------------------------
@@ -290,11 +292,8 @@ func identifyTestCasesForFile(filePath string) ([]string, error) {
 // for the desired conditions so if this request doesn't eventually succeed the
 // calling test will fail and stop.
 func eventuallyGETPath(t *testing.T, path string, statusCode int, bodyContents string, headers map[string]string) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/%s", proxyURL, path), nil)
-	require.NoError(t, err)
-	for header, value := range headers {
-		req.Header.Set(header, value)
-	}
+	req := newRequest(t, http.MethodGet, path, headers)
+
 	require.Eventually(t, func() bool {
 		resp, err := httpc.Do(req)
 		if err != nil {
@@ -314,6 +313,100 @@ func eventuallyGETPath(t *testing.T, path string, statusCode int, bodyContents s
 		}
 		return false
 	}, ingressWait, waitTick)
+}
+
+// responseMatcher is a function that returns match-name and whether the response
+// matches the provided criteria.
+type responseMatcher func(resp *http.Response, respBody string) (key string, ok bool)
+
+// matchRespByStatusAndContent returns a responseMatcher that matches the given status code
+// and body contents.
+func matchRespByStatusAndContent(
+	responseName string,
+	expectedStatusCode int,
+	expectedBodyContents string,
+) responseMatcher {
+	return func(resp *http.Response, respBody string) (string, bool) {
+		if resp.StatusCode != expectedStatusCode {
+			return responseName, false
+		}
+		ok := strings.Contains(respBody, expectedBodyContents)
+		return responseName, ok
+	}
+}
+
+type countHTTPResponsesConfig struct {
+	Method      string
+	Path        string
+	Headers     map[string]string
+	Duration    time.Duration
+	RequestTick time.Duration
+}
+
+func countHTTPGetResponses(t *testing.T,
+	cfg countHTTPResponsesConfig,
+	matchers ...responseMatcher,
+) (matchedResponseCounter map[string]int) {
+	req := newRequest(t, cfg.Method, cfg.Path, cfg.Headers)
+	finished := time.After(cfg.Duration)
+	matchedResponseCounter = make(map[string]int)
+
+	for {
+		select {
+		case <-time.Tick(cfg.RequestTick):
+			countHTTPGetResponse(t, req, matchedResponseCounter, matchers...)
+		case <-finished:
+			return matchedResponseCounter
+		}
+	}
+}
+
+func countHTTPGetResponse(t *testing.T, req *http.Request, matchCounter map[string]int, matchers ...responseMatcher) {
+	resp, err := httpc.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	bytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Logf("failed to read response body: %v", err)
+	}
+
+	body := string(bytes)
+
+	for _, matcher := range matchers {
+		if key, ok := matcher(resp, body); ok {
+			matchCounter[key]++
+			t.Logf("response %s matched", key)
+			return
+		}
+	}
+}
+
+// distributionOfMapValues returns a map of the values in the given counter map
+// and the relative frequency of each value.
+func distributionOfMapValues(counter map[string]int) map[string]float64 {
+	total := 0
+	normalized := make(map[string]float64)
+
+	for _, count := range counter {
+		total += count
+	}
+	for key, count := range counter {
+		normalized[key] = float64(count) / float64(total)
+	}
+
+	return normalized
+}
+
+func newRequest(t *testing.T, method, path string, headers map[string]string) *http.Request {
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/%s", proxyURL, path), nil)
+	require.NoError(t, err)
+	for header, value := range headers {
+		req.Header.Set(header, value)
+	}
+	return req
 }
 
 // expect404WithNoRoute is used to check whether a given http response is (specifically) a Kong 404.
@@ -370,4 +463,25 @@ func exitOnErr(err error) {
 		return
 	}
 	exitOnErrWithCode(err, ExitCodeEnvSetupFailed)
+}
+
+// TODO move this into a shared library https://github.com/Kong/kubernetes-testing-framework/issues/302
+// setup is a helper function for tests which conveniently creates a cluster
+// cleaner (to clean up test resources automatically after the test finishes)
+// and creates a new namespace for the test to use. It also enables parallel
+// testing.
+func setup(t *testing.T) (*corev1.Namespace, *clusters.Cleaner) {
+	t.Log("performing test setup")
+	cleaner := clusters.NewCleaner(env.Cluster())
+
+	t.Log("creating a testing namespace")
+	namespace, err := k8sClient.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: uuid.NewString(),
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+	cleaner.AddNamespace(namespace)
+
+	return namespace, cleaner
 }

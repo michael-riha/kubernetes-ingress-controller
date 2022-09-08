@@ -41,6 +41,16 @@ type KongClient struct {
 	// updates to the data-plane.
 	enableReverseSync bool
 
+	// enableCombinedServiceRoutes indicates that when translating Kubernetes
+	// ingress objects into Kong Admin API configuration we should disable the
+	// legacy logic which would create a single route per path and instead use
+	// the newer logic which combines them.
+	enableCombinedServiceRoutes bool
+
+	// skipCACertificates disables CA certificates, to avoid fighting over configuration in multi-workspace
+	// environments. See https://github.com/Kong/deck/pull/617
+	skipCACertificates bool
+
 	// requestTimeout is the maximum amount of time that should be waited for
 	// requests to the data-plane to receive a response.
 	requestTimeout time.Duration
@@ -73,6 +83,10 @@ type KongClient struct {
 	// kubernetes object reporting functionality.
 	kubernetesObjectReportLock sync.RWMutex
 
+	// additionalFeaturesLock is a mutex to enable thread-safety of enabling or
+	// disabling various features.
+	additionalFeaturesLock sync.RWMutex
+
 	// kubernetesObjectStatusQueue is a queue that needs to be messaged whenever
 	// a Kubernetes object has had configuration for itself successfully applied
 	// to the data-plane: messages will trigger reconciliation in the control plane
@@ -99,20 +113,22 @@ func NewKongClient(
 	timeout time.Duration,
 	ingressClass string,
 	enableReverseSync bool,
+	skipCACertificates bool,
 	diagnostic util.ConfigDumpDiagnostic,
 	kongConfig sendconfig.Kong,
 ) (*KongClient, error) {
 	// build the client object
 	cache := store.NewCacheStores()
 	c := &KongClient{
-		logger:            logger,
-		ingressClass:      ingressClass,
-		enableReverseSync: enableReverseSync,
-		requestTimeout:    timeout,
-		diagnostic:        diagnostic,
-		prometheusMetrics: metrics.NewCtrlFuncMetrics(),
-		cache:             &cache,
-		kongConfig:        kongConfig,
+		logger:             logger,
+		ingressClass:       ingressClass,
+		enableReverseSync:  enableReverseSync,
+		skipCACertificates: skipCACertificates,
+		requestTimeout:     timeout,
+		diagnostic:         diagnostic,
+		prometheusMetrics:  metrics.NewCtrlFuncMetrics(),
+		cache:              &cache,
+		kongConfig:         kongConfig,
 	}
 
 	// download the kong root configuration (and validate connectivity to the proxy API)
@@ -164,7 +180,9 @@ func NewKongClient(
 // It will be asynchronously converted into the upstream Kong DSL and applied to the Kong Admin API.
 // A status will later be added to the object whether the configuration update succeeds or fails.
 func (c *KongClient) UpdateObject(obj client.Object) error {
-	return c.cache.Add(obj)
+	// we do a deep copy of the object here so that the caller can continue to use
+	// the original object in a threadsafe manner.
+	return c.cache.Add(obj.DeepCopyObject())
 }
 
 // DeleteObject accepts a Kubernetes controller-runtime client.Object and removes it from the configuration cache.
@@ -231,6 +249,30 @@ func (c *KongClient) KubernetesObjectIsConfigured(obj client.Object) bool {
 }
 
 // -----------------------------------------------------------------------------
+// Dataplane Client - Kong - Optional Features
+// -----------------------------------------------------------------------------
+
+// EnableCombinedServiceRoutes turns on the combined service routes feature for
+// the Kong Dataplane client.
+func (c *KongClient) EnableCombinedServiceRoutes() {
+	c.additionalFeaturesLock.Lock()
+	defer c.additionalFeaturesLock.Unlock()
+	c.enableCombinedServiceRoutes = true
+}
+
+// AreCombinedServiceRoutesEnabled determines whether the combined service
+// routes translation mode has been enabled, or if the legacy logic is being
+// used. When enabled this changes the logic to try and combine multiple paths
+// into single routes, but it also changes the names of existing routes and so
+// it should be considered disruptive as it will temporarily drop routes when
+// it's first enabled.
+func (c *KongClient) AreCombinedServiceRoutesEnabled() bool {
+	c.additionalFeaturesLock.RLock()
+	defer c.additionalFeaturesLock.RUnlock()
+	return c.enableCombinedServiceRoutes
+}
+
+// -----------------------------------------------------------------------------
 // Dataplane Client - Kong - Interface Implementation
 // -----------------------------------------------------------------------------
 
@@ -256,6 +298,9 @@ func (c *KongClient) Update(ctx context.Context) error {
 	p := parser.NewParser(c.logger, storer)
 	if c.AreKubernetesObjectReportsEnabled() {
 		p.EnableKubernetesObjectReports()
+	}
+	if c.AreCombinedServiceRoutesEnabled() {
+		p.EnableCombinedServiceRoutes()
 	}
 
 	// parse the Kubernetes objects from the storer into Kong configuration
@@ -305,6 +350,7 @@ func (c *KongClient) Update(ctx context.Context) error {
 		&c.kongConfig,
 		c.kongConfig.InMemory,
 		c.enableReverseSync,
+		c.skipCACertificates,
 		targetConfig,
 		c.kongConfig.FilterTags,
 		nil,
@@ -312,6 +358,9 @@ func (c *KongClient) Update(ctx context.Context) error {
 		c.prometheusMetrics,
 	)
 	if err != nil {
+		if expired, ok := timedCtx.Deadline(); ok && time.Now().After(expired) {
+			c.logger.Warn("exceeded Kong API timeout, consider increasing --proxy-timeout-seconds")
+		}
 		// ship diagnostics if enabled
 		if c.diagnostic != (util.ConfigDumpDiagnostic{}) {
 			select {

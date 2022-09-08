@@ -14,10 +14,10 @@ See below for current features and their statuses, and follow the links to the r
 
 Below you will find the overviews of features at various maturity levels:
 
-- [Feature gates for graduated or deprecated features](/#feature-gates-for-graduated-or-deprecated-features)
-- [Feature gates for Alpha or Beta features](/#feature-gates-for-alpha-or-beta-features)
+- [Feature gates for graduated or deprecated features](#feature-gates-for-graduated-or-deprecated-features)
+- [Feature gates for Alpha or Beta features](#feature-gates-for-alpha-or-beta-features)
 
-Please read the [Important Notes](/#important-notes) section before using any `Alpha` or `Beta` features.
+Please read the [Important Notes](#important-notes) section before using any `Alpha` or `Beta` features.
 
 ### Important notes
 
@@ -60,9 +60,10 @@ Features that reach GA and over time become stable will be removed from this tab
 
 {{< table caption="Feature gates for features in Alpha or Beta states" >}}
 
-| Feature | Default | Stage | Since | Until |
-|---------|---------|-------|-------|-------|
-| Knative | `true`  | Alpha | 0.8.0 | TBD   |
-| Gateway | `false` | Alpha | TBD   | TBD   |
+| Feature        | Default | Stage | Since | Until |
+|---------       |---------|-------|-------|-------|
+| Knative        | `true`  | Alpha | 0.8.0 | TBD   |
+| Gateway        | `false` | Alpha | 2.2.0 | TBD   |
+| CombinedRoutes | `false` | Alpha | 2.4.0 | TBD   |
 
 {{< /table > }}

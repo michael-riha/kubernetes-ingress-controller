@@ -1,6 +1,7 @@
 package kongstate
 
 import (
+	"io"
 	"reflect"
 	"testing"
 
@@ -275,6 +276,7 @@ func TestOverrideRouteByKongIngress(t *testing.T) {
 		nilRoute.override(logrus.New(), nil)
 	})
 }
+
 func TestOverrideRouteByAnnotation(t *testing.T) {
 	assert := assert.New(t)
 	var route Route
@@ -356,8 +358,11 @@ func TestNormalizeProtocols(t *testing.T) {
 	}
 
 	assert.NotPanics(func() {
+		log := logrus.New()
+		log.SetOutput(io.Discard)
+
 		var nilUpstream *Upstream
-		nilUpstream.override(nil, make(map[string]string))
+		nilUpstream.override(log, nil, nil)
 	})
 }
 
@@ -448,7 +453,8 @@ func Test_overrideRouteStripPath(t *testing.T) {
 			name: "set to false",
 			args: args{
 				route: Route{
-					Route: kong.Route{}},
+					Route: kong.Route{},
+				},
 				anns: map[string]string{
 					"konghq.com/strip-path": "false",
 				},
@@ -866,7 +872,8 @@ func Test_overrideRequestBuffering(t *testing.T) {
 			name: "set to false",
 			args: args{
 				route: Route{
-					Route: kong.Route{}},
+					Route: kong.Route{},
+				},
 				anns: map[string]string{
 					"konghq.com/request-buffering": "false",
 				},
@@ -938,7 +945,8 @@ func Test_overrideResponseBuffering(t *testing.T) {
 			name: "set to false",
 			args: args{
 				route: Route{
-					Route: kong.Route{}},
+					Route: kong.Route{},
+				},
 				anns: map[string]string{
 					"konghq.com/response-buffering": "false",
 				},

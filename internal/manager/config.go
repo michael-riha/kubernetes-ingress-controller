@@ -40,6 +40,7 @@ type Config struct {
 	AnonymousReports                  bool
 	EnableReverseSync                 bool
 	SyncPeriod                        time.Duration
+	SkipCACertificates                bool
 
 	// Kong Proxy configurations
 	APIServerHost            string
@@ -91,6 +92,12 @@ type Config struct {
 
 	// Feature Gates
 	FeatureGates map[string]bool
+
+	// TermDelay is the time.Duration which the controller manager will wait
+	// after receiving SIGTERM or SIGINT before shutting down. This can be
+	// helpful for advanced cases with load-balancers so that the ingress
+	// controller can be gracefully removed/drained from their rotation.
+	TermDelay time.Duration
 }
 
 // -----------------------------------------------------------------------------
@@ -99,7 +106,6 @@ type Config struct {
 
 // FlagSet binds the provided Config to commandline flags.
 func (c *Config) FlagSet() *pflag.FlagSet {
-
 	flagSet := pflag.NewFlagSet("", pflag.ExitOnError)
 
 	// Logging configurations
@@ -122,6 +128,7 @@ func (c *Config) FlagSet() *pflag.FlagSet {
 	flagSet.BoolVar(&c.AnonymousReports, "anonymous-reports", true, `Send anonymized usage data to help improve Kong`)
 	flagSet.BoolVar(&c.EnableReverseSync, "enable-reverse-sync", false, `Send configuration to Kong even if the configuration checksum has not changed since previous update.`)
 	flagSet.DurationVar(&c.SyncPeriod, "sync-period", time.Hour*48, `Relist and confirm cloud resources this often`) // 48 hours derived from controller-runtime defaults
+	flagSet.BoolVar(&c.SkipCACertificates, "skip-ca-certificates", false, `disable syncing CA certificate syncing (for use with multi-workspace environments)`)
 
 	flagSet.StringVar(&c.KongAdminAPIConfig.TLSClientCertPath, "kong-admin-tls-client-cert-file", "", "mTLS client certificate file for authentication.")
 	flagSet.StringVar(&c.KongAdminAPIConfig.TLSClientKeyPath, "kong-admin-tls-client-key-file", "", "mTLS client key file for authentication.")
@@ -139,7 +146,7 @@ func (c *Config) FlagSet() *pflag.FlagSet {
 		"Define the rate (in seconds) in which configuration updates will be applied to the Kong Admin API.",
 	)
 	flagSet.Float32Var(&c.ProxyTimeoutSeconds, "proxy-timeout-seconds", dataplane.DefaultTimeoutSeconds,
-		"Define the rate (in seconds) in which the timeout configuration will be applied to the Kong client.",
+		"Sets the timeout (in seconds) for all requests to Kong's Admin API.",
 	)
 	flagSet.StringVar(&c.KongCustomEntitiesSecret, "kong-custom-entities-secret", "", `A Secret containing custom entities for DB-less mode, in "namespace/name" format`)
 
@@ -200,6 +207,9 @@ func (c *Config) FlagSet() *pflag.FlagSet {
 	// Feature Gates (see FEATURE_GATES.md)
 	flagSet.Var(cliflag.NewMapStringBool(&c.FeatureGates), "feature-gates", "A set of key=value pairs that describe feature gates for alpha/beta/experimental features. "+
 		fmt.Sprintf("See the Feature Gates documentation for information and available options: %s", featureGatesDocsURL))
+
+	// SIGTERM or SIGINT signal delay
+	flagSet.DurationVar(&c.TermDelay, "term-delay", time.Second*0, "The time delay to sleep before SIGTERM or SIGINT will shut down the Ingress Controller")
 
 	// Deprecated (to be removed in future releases)
 	flagSet.Float32Var(&c.ProxySyncSeconds, "sync-rate-limit", dataplane.DefaultSyncSeconds,
